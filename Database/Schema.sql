@@ -326,8 +326,8 @@ BEGIN
         SourceContentSource         INT             NOT NULL,
         SourceContentLanguage       VARCHAR(12)     NOT NULL CONSTRAINT DFSourceContentLanguage DEFAULT (''),
         SourceContentOrigin         VARCHAR(100)    NOT NULL CONSTRAINT DFSourceContentOrigin DEFAULT (''),  -- connector / tool that produced it
-        SourceContentText           NTEXT           NOT NULL CONSTRAINT DFSourceContentText DEFAULT (N''),   -- plain text
-        SourceContentData           NTEXT           NOT NULL CONSTRAINT DFSourceContentData DEFAULT (N''),   -- original with timings (JSON / VTT), if any
+        SourceContentText           NVARCHAR(MAX)   NOT NULL CONSTRAINT DFSourceContentText DEFAULT (N''),   -- plain text
+        SourceContentData           NVARCHAR(MAX)   NOT NULL CONSTRAINT DFSourceContentData DEFAULT (N''),   -- original with timings (JSON / VTT), if any
         SourceContentLength         INT             NOT NULL CONSTRAINT DFSourceContentLength DEFAULT (0),   -- characters in SourceContentText
         SourceContentHash           VARBINARY(32)   NOT NULL CONSTRAINT DFSourceContentHash DEFAULT (0x),    -- SHA-256 of the text, detects later edits
         SourceContentDateFetched    DATETIME2(0)    NOT NULL CONSTRAINT DFSourceContentDateFetched DEFAULT (SYSUTCDATETIME())
@@ -545,7 +545,7 @@ BEGIN
         ReportChannel           INT             NOT NULL CONSTRAINT DFReportChannel DEFAULT (0),
         ReportIsCurrent         BIT             NOT NULL CONSTRAINT DFReportIsCurrent DEFAULT (0),       -- latest report of its type for the person
         ReportSummary           NVARCHAR(4000)  NOT NULL CONSTRAINT DFReportSummary DEFAULT (N''),       -- the paragraph or two
-        ReportText              NTEXT           NOT NULL CONSTRAINT DFReportText DEFAULT (N''),          -- full report (Markdown)
+        ReportText              NVARCHAR(MAX)   NOT NULL CONSTRAINT DFReportText DEFAULT (N''),          -- full report (Markdown)
         ReportInstruction       NVARCHAR(4000)  NOT NULL CONSTRAINT DFReportInstruction DEFAULT (N''),   -- what the model was asked
         ReportParameters        NVARCHAR(4000)  NOT NULL CONSTRAINT DFReportParameters DEFAULT (N''),    -- JSON: how the material was selected
         ReportModel             VARCHAR(100)    NOT NULL CONSTRAINT DFReportModel DEFAULT (''),
@@ -604,6 +604,43 @@ BEGIN
     );
     CREATE UNIQUE INDEX UXReportSource ON dbo.ReportSources (ReportSourceReport, ReportSourceSource);
 END
+GO
+
+/* =====================================================================================
+   CONVERSIONS
+   Changes to tables that already exist in a database created by an earlier version of this
+   script. Each block checks first, so the script stays safe to run again.
+   ===================================================================================== */
+
+-- Long texts were first created as NTEXT; the conventions now ask for NVARCHAR(MAX).
+-- The stored text is kept. The default has to be dropped and put back around the change.
+SET XACT_ABORT ON;
+SET NOCOUNT ON;
+DECLARE @Change TABLE (TableName SYSNAME, ColumnName SYSNAME, DefaultName SYSNAME);
+INSERT INTO @Change VALUES (N'SourceContents', N'SourceContentText', N'DFSourceContentText'),
+                           (N'SourceContents', N'SourceContentData', N'DFSourceContentData'),
+                           (N'Reports', N'ReportText', N'DFReportText');
+DECLARE @TableName SYSNAME, @ColumnName SYSNAME, @DefaultName SYSNAME, @Sql NVARCHAR(MAX);
+DECLARE ChangeCursor CURSOR LOCAL FAST_FORWARD FOR
+    SELECT ch.TableName, ch.ColumnName, ch.DefaultName
+    FROM @Change ch
+    INNER JOIN sys.columns c ON c.object_id = OBJECT_ID(N'dbo.' + ch.TableName) AND c.name = ch.ColumnName
+    INNER JOIN sys.types ty ON ty.user_type_id = c.user_type_id
+    WHERE ty.name = N'ntext';
+OPEN ChangeCursor;
+FETCH NEXT FROM ChangeCursor INTO @TableName, @ColumnName, @DefaultName;
+WHILE @@FETCH_STATUS = 0
+BEGIN
+    SET @Sql = N'BEGIN TRANSACTION; '
+             + N'ALTER TABLE dbo.' + QUOTENAME(@TableName) + N' DROP CONSTRAINT ' + QUOTENAME(@DefaultName) + N'; '
+             + N'ALTER TABLE dbo.' + QUOTENAME(@TableName) + N' ALTER COLUMN ' + QUOTENAME(@ColumnName) + N' NVARCHAR(MAX) NOT NULL; '
+             + N'ALTER TABLE dbo.' + QUOTENAME(@TableName) + N' ADD CONSTRAINT ' + QUOTENAME(@DefaultName) + N' DEFAULT (N'''') FOR ' + QUOTENAME(@ColumnName) + N'; '
+             + N'COMMIT TRANSACTION;';
+    EXEC sys.sp_executesql @Sql;
+    FETCH NEXT FROM ChangeCursor INTO @TableName, @ColumnName, @DefaultName;
+END
+CLOSE ChangeCursor;
+DEALLOCATE ChangeCursor;
 GO
 
 /* =====================================================================================

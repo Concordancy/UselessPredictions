@@ -28,7 +28,7 @@
 {% endif %}
 {% if Provisional and Provisional.Total %}
 <p class="Notice">Provisional, including {{ Provisional.Proposed }} AI-proposed verdict{{ '' if Provisional.Proposed == 1 else 's' }} nobody has reviewed: {{ Provisional.Scored }} scored, {{ Provisional.Correct }} correct, {{ Provisional.Partial }} partly correct, {{ Provisional.Incorrect }} incorrect{% if Provisional.ScoreAverage is not none %}, average score {{ '%+.1f' | format(Provisional.ScoreAverage) }}{% endif %}.
-    {% if Provisional.Proposed %}<a href="/Manage/Assessments?AssessmentStatus=601&AssessmentIsCurrent=1">Review proposed verdicts</a>{% endif %}</p>
+    {% if Provisional.Proposed %}<a href="/SourceClaims?Person={{ Person.PersonID }}&Verdict=Proposed">Review proposed verdicts</a>{% endif %}</p>
 {% endif %}
 
 {% if Verdict %}
@@ -78,13 +78,8 @@
 <div class="Heading">
     <h2>Assertions</h2>
     <div>
-        {% if WaitingCount %}
-        <form class="InlineForm" method="post" action="/Persons/Assess/{{ Person.PersonID }}"
-              onsubmit="return confirm('Search the web for evidence and propose verdicts for {{ [WaitingCount, AssessBatchCountMax] | min }} assertions? Each one uses model calls and web searches, which are billed.');">
-            <button type="submit"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Propose verdicts for {{ [WaitingCount, AssessBatchCountMax] | min }}{% if WaitingCount > AssessBatchCountMax %} of {{ WaitingCount }}{% endif %}</button>
-        </form>
-        {% endif %}
-        <a class="Button" href="/Manage/SourceClaims?SourceClaimPerson={{ Person.PersonID }}">All {{ ClaimCount }}</a>
+        {% if WaitingCount %}<a class="Button" href="/SourceClaims?Person={{ Person.PersonID }}&Verdict=None">Choose claims to analyse ({{ WaitingCount }} without a verdict)</a>{% endif %}
+        <a class="Button" href="/SourceClaims?Person={{ Person.PersonID }}">All {{ ClaimCount }}</a>
     </div>
 </div>
 {% if Claims %}

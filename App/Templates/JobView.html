@@ -19,6 +19,10 @@
     <dt>Requested</dt><dd>{{ Parameters.Input }}{% if Parameters.DateStart or Parameters.DateEnd %}; published {{ Parameters.DateStart or 'any time' }} to {{ Parameters.DateEnd or 'now' }}{% endif %}{% if Parameters.Limit %}; at most {{ Parameters.Limit }}{% endif %}{% if Parameters.ContentLoad %}; with text{% endif %}</dd>
     {% endif %}
 </dl>
+{% if not IsActive and Job.JobType == 907 %}
+<p><a class="Button Primary" href="/SourceClaims?Verdict=Proposed{% if Job.JobPerson %}&Person={{ Job.JobPerson }}{% endif %}">Review the proposed verdicts</a>
+   <a class="Button" href="/SourceClaims{% if Job.JobPerson %}?Person={{ Job.JobPerson }}{% endif %}">Back to the claims</a></p>
+{% endif %}
 {% if not IsActive and Job.JobChannel %}
 <p><a class="Button Primary" href="/Manage/Sources?SourceChannel={{ Job.JobChannel }}">View the sources</a>
    {% if Job.JobPerson %}<a class="Button" href="/Persons/View/{{ Job.JobPerson }}">Open the person</a>{% endif %}</p>

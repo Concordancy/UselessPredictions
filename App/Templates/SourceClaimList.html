@@ -1,0 +1,146 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<div class="Heading">
+    <h1>Claims</h1>
+    <a class="Button" href="/Manage/SourceClaims/Create">Add a claim by hand</a>
+</div>
+<p class="Lead">Every assertion recorded from the imported sources. Tick the ones worth checking and run the analysis on just those; record a verdict yourself for the ones you already know.</p>
+{% if Notice %}<p class="Alert Good">{{ Notice }}</p>{% endif %}
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+
+<form class="Filters" method="get" action="/SourceClaims">
+    <label>Search <input type="search" name="Search" value="{{ Filter.Search }}" placeholder="Words in the claim or quote"></label>
+    <label>Person
+        <select name="Person" onchange="this.form.submit()">
+            <option value="0">Everyone</option>
+            {% for Row in Persons %}<option value="{{ Row.PersonID }}"{% if Filter.Person == Row.PersonID %} selected{% endif %}>{{ Row.PersonLabel }} ({{ Row.ClaimCount }})</option>{% endfor %}
+        </select>
+    </label>
+    <label>Verdict
+        <select name="Verdict" onchange="this.form.submit()">
+            {% for Value, Label in VerdictOptions %}<option value="{{ Value }}"{% if Filter.Verdict == Value %} selected{% endif %}>{{ Label }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>Deadline
+        <select name="Window" onchange="this.form.submit()">
+            {% for Value, Label in WindowOptions %}<option value="{{ Value }}"{% if Filter.Window == Value %} selected{% endif %}>{{ Label }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>Review
+        <select name="Status" onchange="this.form.submit()">
+            <option value="0">All but rejected</option>
+            {% for ID, Label in StatusOptions %}{% if ID %}<option value="{{ ID }}"{% if Filter.Status == ID %} selected{% endif %}>{{ Label }}</option>{% endif %}{% endfor %}
+        </select>
+    </label>
+    <label>Kind
+        <select name="Kind" onchange="this.form.submit()">
+            <option value="0">All</option>
+            {% for ID, Label in KindOptions %}{% if ID %}<option value="{{ ID }}"{% if Filter.Kind == ID %} selected{% endif %}>{{ Label }}</option>{% endif %}{% endfor %}
+        </select>
+    </label>
+    <label>Subject
+        <select name="Category" onchange="this.form.submit()">
+            {% for ID, Label in CategoryOptions %}<option value="{{ ID }}"{% if Filter.Category == ID %} selected{% endif %}>{{ Label if ID else 'All subjects' }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>Said from <input type="date" name="DateStart" value="{{ Filter.DateStart }}"></label>
+    <label>to <input type="date" name="DateEnd" value="{{ Filter.DateEnd }}"></label>
+    <label>Order
+        <select name="Sort" onchange="this.form.submit()">
+            {% for Value, Label in SortOptions %}<option value="{{ Value }}"{% if Filter.Sort == Value %} selected{% endif %}>{{ Label }}</option>{% endfor %}
+        </select>
+    </label>
+    <button type="submit">Apply</button>
+    {% if IsFiltered %}<a href="/SourceClaims">Clear filters</a>{% endif %}
+</form>
+
+{% if Rows %}
+<form method="post" action="/SourceClaims/Bulk" id="BulkForm">
+    <input type="hidden" name="Return" value="{{ QueryString }}">
+    <div class="Bulk">
+        <span class="BulkCount"><b id="PickedCount">0</b> ticked</span>
+        <button class="Primary" type="submit" name="Action" value="Analyse" data-needs-pick data-confirm="analyse"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Run analysis</button>
+        <span class="BulkGroup">
+            <button type="submit" name="Action" value="Confirm" data-needs-pick title="The quote, the speaker and the deadline are right">Confirm claims</button>
+            <button type="submit" name="Action" value="Reject" data-needs-pick title="Not a checkable claim, or recorded wrongly">Reject</button>
+            <button type="submit" name="Action" value="VerdictConfirm" data-needs-pick title="Accept the verdict currently proposed for each ticked claim">Confirm their verdicts</button>
+        </span>
+        <span class="BulkGroup">
+            <select name="Outcome" aria-label="Verdict to record">
+                {% for ID, Label in OutcomeOptions %}<option value="{{ ID }}">{{ Label }}</option>{% endfor %}
+            </select>
+            <select name="Score" aria-label="Score to record">
+                <option value="">No score</option>
+                {% for ID, Label in ScoreOptions %}<option value="{{ ID }}">{{ Label }}</option>{% endfor %}
+            </select>
+            <button type="submit" name="Action" value="Verdict" data-needs-pick title="Record this verdict yourself for every ticked claim, without any analysis">Record verdict</button>
+        </span>
+    </div>
+    <div class="TableWrap">
+    <table>
+        <thead><tr>
+            <th class="Check"><input type="checkbox" id="PickAll" aria-label="Tick every claim on this page"></th>
+            <th>Said</th><th>Claim</th><th>By</th><th>Certainty</th><th>Due by</th><th>Verdict</th><th>Review</th>
+        </tr></thead>
+        <tbody>
+        {% for Row in Rows %}
+        <tr>
+            <td class="Check"><input type="checkbox" name="SourceClaims" value="{{ Row.SourceClaimID }}" aria-label="Tick claim {{ Row.SourceClaimID }}"></td>
+            <td class="NoWrap">{{ Row.SourceDatePublished.strftime('%Y-%m-%d') if Row.SourceDatePublished else '' }}</td>
+            <td class="Wide"><a href="/SourceClaims/View/{{ Row.SourceClaimID }}">{{ Row.SourceClaimLabel }}</a>{% if Row.SourceClaimType not in (501, 0) %} <span class="Badge">{{ Row.SourceClaimTypeLabel }}</span>{% endif %}
+                {% if Row.SourceClaimQuote and Row.SourceClaimQuote != Row.SourceClaimLabel %}<div class="Quote">"{{ Row.SourceClaimQuote[:260] }}{{ '...' if Row.SourceClaimQuote | length > 260 }}"</div>{% endif %}
+                <div class="Muted"><a href="/Sources/View/{{ Row.SourceID }}">{{ (Row.SourceLabel or '')[:70] }}</a>{% if Row.PlatformLabel %} · {{ Row.PlatformLabel }}{% endif %}{% if not Row.ClaimID %} · <span class="Badge Warn">no canonical claim</span>{% endif %}</div></td>
+            <td>{{ Row.PersonLabel or '' }}</td>
+            <td>{{ Row.ClaimCertaintyLabel if Row.ClaimCertaintyLabel and Row.ClaimCertaintyLabel != 'Unspecified' else '' }}</td>
+            <td class="NoWrap">{% if Row.SourceClaimDueDateMax %}{{ Row.SourceClaimDueDateMax }}{% if Row.SourceClaimDueDateMax >= Today %}<div class="Muted">still open</div>{% endif %}{% else %}<span class="Muted">open-ended</span>{% endif %}</td>
+            <td>{% if Row.AssessmentID %}{{ Row.ClaimOutcomeLabel }}{% if Row.AssessmentScore is not none %} <span class="Score {{ 'Plus' if Row.AssessmentScore > 0 else ('Minus' if Row.AssessmentScore < 0 else '') }}">{{ '%+d' | format(Row.AssessmentScore) if Row.AssessmentScore else '0' }}</span>{% endif %}
+                <div><span class="Badge {{ 'Good' if Row.AssessmentStatus == 602 else 'Warn' }}">{{ Row.AssessmentStatusLabel }}</span></div>{% else %}<span class="Muted">none</span>{% endif %}</td>
+            <td><span class="Badge {{ 'Good' if Row.SourceClaimStatus == 502 else ('Bad' if Row.SourceClaimStatus == 503 else '') }}">{{ Row.SourceClaimStatusLabel or 'Not set' }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</form>
+<div class="Paging">
+    <span>{{ Total | Text('Number') }} claim{{ '' if Total == 1 else 's' }}</span>
+    {% if PageCount > 1 %}
+    {% if Page > 1 %}<a href="?{{ PagingQuery }}{{ '&' if PagingQuery }}Page={{ Page - 1 }}">Previous</a>{% endif %}
+    <span>Page {{ Page }} of {{ PageCount }}</span>
+    {% if Page < PageCount %}<a href="?{{ PagingQuery }}{{ '&' if PagingQuery }}Page={{ Page + 1 }}">Next</a>{% endif %}
+    {% endif %}
+</div>
+<script>
+(function () {
+    var Form = document.getElementById('BulkForm');
+    var Boxes = Array.prototype.slice.call(Form.querySelectorAll('input[name="SourceClaims"]'));
+    var All = document.getElementById('PickAll');
+    var Count = document.getElementById('PickedCount');
+    var Buttons = Array.prototype.slice.call(Form.querySelectorAll('[data-needs-pick]'));
+    var Locked = Buttons.filter(function (Button) { return Button.disabled; });
+    function Picked() { return Boxes.filter(function (Box) { return Box.checked; }).length; }
+    function Refresh() {
+        var Number = Picked();
+        Count.textContent = Number;
+        Buttons.forEach(function (Button) { Button.disabled = Number === 0 || Locked.indexOf(Button) !== -1; });
+        All.checked = Number === Boxes.length && Number > 0;
+        All.indeterminate = Number > 0 && Number < Boxes.length;
+    }
+    Boxes.forEach(function (Box) { Box.addEventListener('change', Refresh); });
+    All.addEventListener('change', function () { Boxes.forEach(function (Box) { Box.checked = All.checked; }); Refresh(); });
+    Form.addEventListener('submit', function (Event) {
+        var Button = Event.submitter;
+        if (Button && Button.dataset.confirm === 'analyse') {
+            var Number = Picked();
+            if (!confirm('Search the web for evidence and propose a verdict for ' + Number + ' claim' + (Number === 1 ? '' : 's') + '?\n\nEach one uses two model calls and up to {{ SearchCountMax }} web searches, which are billed.')) {
+                Event.preventDefault();
+            }
+        }
+    });
+    Refresh();
+})();
+</script>
+{% else %}
+<p class="Empty">{% if IsFiltered %}No claims match these filters.{% else %}No claims recorded yet. Import a channel, then extract claims from its sources on the person's page.{% endif %}</p>
+{% endif %}
+{% endblock %}

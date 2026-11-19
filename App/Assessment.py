@@ -243,7 +243,7 @@ def SourceClaimAssessSave(SourceClaimID: int, Verdict: dict, Model: str, UrlSeen
 
 
 # ---------------------------------------------------------------------------------------------
-# Batch: every assertion of a person that is ready for a verdict
+# Batches: analysis runs only on the assertions somebody picked
 # ---------------------------------------------------------------------------------------------
 
 def SourceClaimAssessListLoad(PersonID: int) -> list:
@@ -258,21 +258,56 @@ def SourceClaimAssessListLoad(PersonID: int) -> list:
         "ORDER BY ISNULL(sc.SourceClaimDueDateMax, '99991231'), sc.SourceClaimID", PersonID, OutcomePending)]
 
 
-def PersonAssessCreate(PersonID: int, UserCreator: int = Config.UserAdministrator) -> int:
-    """Starts a background Job that proposes verdicts for the person's waiting assertions. Returns the JobID."""
+def IdChunkListGet(IDs: list, Size: int = 500):
+    return [IDs[Start:Start + Size] for Start in range(0, len(IDs), Size)]
+
+
+def SourceClaimAssessBatchCreate(SourceClaimIDs: list, UserCreator: int = Config.UserAdministrator) -> int:
+    """Starts a background Job that proposes verdicts for exactly the given assertions.
+    Assertions that are rejected or not linked to a canonical claim are left out. Returns the JobID."""
     Usable, Note = StatusGet()
     if not Usable:
         raise AnalysisError(Note)
-    Waiting = SourceClaimAssessListLoad(PersonID)
-    if not Waiting:
-        raise AnalysisError('No assertions of this person are waiting for a verdict.')
-    Batch = Waiting[:Config.AssessBatchCountMax]
-    Label = Database.ValueLoad('SELECT PersonLabel FROM dbo.Persons WHERE PersonID = ?', PersonID) or ''
+    IDs = sorted({int(ID) for ID in SourceClaimIDs if int(ID) > 0})
+    if not IDs:
+        raise AnalysisError('Tick at least one claim first.')
+    Rows = []
+    for Chunk in IdChunkListGet(IDs):
+        Rows += Database.RowListLoad(
+            'SELECT SourceClaimID, SourceClaimPerson FROM dbo.SourceClaims WHERE SourceClaimClaim > 0 AND SourceClaimStatus <> 503 '
+            f"AND SourceClaimID IN ({', '.join('?' for _ in Chunk)}) ORDER BY ISNULL(SourceClaimDueDateMax, '99991231'), SourceClaimID", *Chunk)
+    if not Rows:
+        raise AnalysisError('None of the ticked claims can be analysed: a claim needs a canonical claim with resolution criteria '
+                            '(extract claims from its source first) and must not be rejected.')
+    Skipped = len(IDs) - len(Rows)
+    Persons = {Row['SourceClaimPerson'] for Row in Rows}
+    Person = Persons.pop() if len(Persons) == 1 else 0
+    Label = (Database.ValueLoad('SELECT PersonLabel FROM dbo.Persons WHERE PersonID = ?', Person) or '') if Person else 'several people'
     JobID = Database.RowAdd('Jobs', 'JobID', {
-        'JobType': 907, 'JobStatus': 901, 'JobLabel': f'Propose verdicts: {Label}'[:320], 'JobPerson': PersonID,
-        'JobItemCountFound': len(Batch), 'JobUserCreator': UserCreator,
-        'JobMessage': f'{len(Waiting) - len(Batch)} more are waiting for a later run.' if len(Waiting) > len(Batch) else ''})
-    Tail = 'The proposed verdicts await your review.' + (f' {len(Waiting) - len(Batch)} more assertions are waiting for a later run.' if len(Waiting) > len(Batch) else '')
-    threading.Thread(target=JobBatchRun, args=(JobID, Batch, lambda SourceClaimID: 1 if SourceClaimAssessRun(SourceClaimID) else 0, 'verdicts',
+        'JobType': 907, 'JobStatus': 901, 'JobLabel': f'Analyse {len(Rows)} ticked claims: {Label}'[:320], 'JobPerson': Person,
+        'JobItemCountFound': len(Rows), 'JobUserCreator': UserCreator})
+    Tail = 'The proposed verdicts await your review.' + (f' {Skipped} ticked claim(s) were left out (rejected, or no canonical claim).' if Skipped else '')
+    threading.Thread(target=JobBatchRun, args=(JobID, [Row['SourceClaimID'] for Row in Rows],
+                                               lambda SourceClaimID: 1 if SourceClaimAssessRun(SourceClaimID) else 0, 'verdicts',
                                                Config.AssessWorkerCount, Tail), daemon=True, name=f'Job{JobID}').start()
     return JobID
+
+
+def SourceClaimVerdictSet(SourceClaimIDs: list, Outcome: int, Score, UserCreator: int = Config.UserAdministrator) -> int:
+    """Records a verdict decided by a person for each given assertion, without any analysis.
+    It takes the place of whatever verdict was in force. Returns how many were recorded."""
+    Counted = Database.ValueLoad('SELECT ClaimOutcomeIsCounted FROM dbo.ClaimOutcomes WHERE ClaimOutcomeID = ? AND ClaimOutcomeMaster > 0', Outcome)
+    if Counted is None:
+        raise AnalysisError('Choose the verdict to record.')
+    Score = max(-5, min(5, int(Score))) if (Counted and Score not in (None, '')) else None
+    Count = 0
+    for SourceClaimID in sorted({int(ID) for ID in SourceClaimIDs if int(ID) > 0}):
+        Database.StatementExecute(
+            'UPDATE dbo.Assessments SET AssessmentIsCurrent = 0, AssessmentStatus = CASE WHEN AssessmentStatus = ? THEN ? ELSE AssessmentStatus END '
+            'WHERE AssessmentSourceClaim = ? AND AssessmentIsCurrent = 1', AssessmentStatusProposed, AssessmentStatusSuperseded, SourceClaimID)
+        Database.RowAdd('Assessments', 'AssessmentID', {
+            'AssessmentType': 602, 'AssessmentStatus': AssessmentStatusConfirmed, 'AssessmentLabel': 'Verdict entered by hand.',
+            'AssessmentSourceClaim': SourceClaimID, 'AssessmentOutcome': Outcome, 'AssessmentScore': Score, 'AssessmentConfidence': 0,
+            'AssessmentIsCurrent': True, 'AssessmentUserCreator': UserCreator})
+        Count += 1
+    return Count

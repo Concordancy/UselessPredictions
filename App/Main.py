@@ -468,7 +468,7 @@ def PersonView(request: Request, ID: int, Notice: str = ''):
     return PageRender(request, 'PersonView.html', Title=Person['PersonLabel'], Person=Person, Score=Score, Channels=Channels,
                       Claims=Claims, ClaimCount=ClaimCount, Reports=Reports, Verdict=Verdict, Notice=Notice,
                       Provisional=Provisional, WaitingCount=len(Assessment.SourceClaimAssessListLoad(ID)),
-                      AssessBatchCountMax=Config.AssessBatchCountMax, AnalysisStatus=Analysis.StatusGet())
+                      AnalysisStatus=Analysis.StatusGet())
 
 
 @App.get('/Sources/View/{ID}', response_class=HTMLResponse)
@@ -663,10 +663,121 @@ async def AssessmentReview(request: Request, ID: int):
     return RedirectResponse(f'/SourceClaims/View/{SourceClaimID}' if SourceClaimID else '/Manage/Assessments', status_code=303)
 
 
-@App.post('/Persons/Assess/{ID}')
-def PersonAssess(ID: int):
+# ---------------------------------------------------------------------------------------------
+# Claims: the list of every assertion, with tick boxes for analysis and review
+# ---------------------------------------------------------------------------------------------
+
+ClaimPageSize = 100
+ClaimVerdictOptions = [('', 'Any'), ('None', 'No verdict yet'), ('Proposed', 'Proposed, not reviewed'), ('Confirmed', 'Confirmed'),
+                       ('Correct', 'Correct'), ('Partly', 'Partly correct'), ('Incorrect', 'Incorrect'), ('NotScoreable', 'Not scoreable'),
+                       ('Pending', 'Pending')]
+ClaimWindowOptions = [('', 'Any'), ('Closed', 'Deadline passed'), ('Open', 'Deadline still ahead'), ('None', 'Open-ended')]
+ClaimSortOptions = [('', 'Newest statements first'), ('Oldest', 'Oldest statements first'), ('Due', 'Earliest deadline first')]
+ClaimVerdictSql = {'None': 'l.AssessmentID IS NULL', 'Proposed': 'l.AssessmentStatus = 601', 'Confirmed': 'l.AssessmentStatus = 602',
+                   'Correct': 'l.ClaimOutcomeGroupID = 2', 'Partly': 'l.ClaimOutcomeGroupID = 3', 'Incorrect': 'l.ClaimOutcomeGroupID = 4',
+                   'NotScoreable': 'l.ClaimOutcomeGroupID = 5', 'Pending': 'l.ClaimOutcomeID = 10'}
+ClaimWindowSql = {'Closed': 'l.SourceClaimDueDateMax < CAST(SYSUTCDATETIME() AS DATE)', 'Open': 'l.SourceClaimDueDateMax >= CAST(SYSUTCDATETIME() AS DATE)',
+                  'None': 'l.SourceClaimDueDateMax IS NULL'}
+ClaimSortSql = {'': 'l.SourceDatePublished DESC, l.SourceClaimID DESC', 'Oldest': 'l.SourceDatePublished, l.SourceClaimID',
+                'Due': "ISNULL(l.SourceClaimDueDateMax, '99991231'), l.SourceClaimID"}
+
+
+@App.get('/SourceClaims', response_class=HTMLResponse)
+def SourceClaimListView(request: Request, Person: int = 0, Search: str = '', Status: int = 0, Verdict: str = '', Window: str = '',
+                        Kind: int = 0, Category: int = 0, DateStart: str = '', DateEnd: str = '', Sort: str = '', Page: int = 1,
+                        Notice: str = '', Error: str = ''):
+    Verdict = Verdict if Verdict in ClaimVerdictSql else ''
+    Window = Window if Window in ClaimWindowSql else ''
+    Sort = Sort if Sort in ClaimSortSql else ''
+    Where, Values = ['l.SourceClaimStatus = ?' if Status else 'l.SourceClaimStatus <> 503'], ([Status] if Status else [])
+    if Person:
+        Where.append('l.PersonID = ?')
+        Values.append(Person)
+    if Search.strip():
+        Where.append('(l.SourceClaimLabel LIKE ? OR l.SourceClaimQuote LIKE ? OR l.ClaimLabel LIKE ? OR l.SourceLabel LIKE ?)')
+        Values += [f'%{Search.strip()}%'] * 4
+    if Verdict:
+        Where.append(ClaimVerdictSql[Verdict])
+    if Window:
+        Where.append(ClaimWindowSql[Window])
+    if Kind:
+        Where.append('l.SourceClaimType = ?')
+        Values.append(Kind)
+    if Category:
+        Where.append('(l.CategoryID = ? OR cat.CategoryMaster = ?)')
+        Values += [Category, Category]
     try:
-        JobID = Assessment.PersonAssessCreate(ID)
-    except Analysis.AnalysisError as Problem:
-        return RedirectResponse(f'/Persons/View/{ID}?{urlencode({"Notice": str(Problem)})}', status_code=303)
-    return RedirectResponse(f'/Jobs/View/{JobID}', status_code=303)
+        Period = (date.fromisoformat(DateStart) if DateStart else None, date.fromisoformat(DateEnd) if DateEnd else None)
+    except ValueError:      # a hand-typed address with a malformed date: show everything rather than fail
+        Period, DateStart, DateEnd = (None, None), '', ''
+    if Period[0]:
+        Where.append('l.SourceDatePublished >= ?')
+        Values.append(Period[0])
+    if Period[1]:
+        Where.append('l.SourceDatePublished < DATEADD(DAY, 1, CAST(? AS DATE))')
+        Values.append(Period[1])
+    From = ('FROM dbo.SourceClaimList l LEFT OUTER JOIN dbo.Categories cat ON cat.CategoryID = l.CategoryID '
+            f"WHERE {' AND '.join(Where)}")
+    Total = Database.ValueLoad(f'SELECT COUNT(*) {From}', *Values)
+    PageCount = max(1, -(-Total // ClaimPageSize))
+    Page = min(max(1, Page), PageCount)
+    Rows = Database.RowListLoad(f'SELECT l.* {From} ORDER BY {ClaimSortSql[Sort]} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
+                                *Values, (Page - 1) * ClaimPageSize, ClaimPageSize)
+    Filter = {'Person': Person, 'Search': Search.strip(), 'Status': Status, 'Verdict': Verdict, 'Window': Window, 'Kind': Kind,
+              'Category': Category, 'DateStart': DateStart, 'DateEnd': DateEnd, 'Sort': Sort}
+    Active = {Name: Value for Name, Value in Filter.items() if Value}
+    Info = Registry.TableGet('SourceClaims')
+    return PageRender(
+        request, 'SourceClaimList.html', Title='Claims', Rows=Rows, Total=Total, Page=Page, PageCount=PageCount, Filter=Filter,
+        IsFiltered=bool({Name for Name in Active if Name != 'Sort'}), PagingQuery=urlencode(Active),
+        QueryString=urlencode({**Active, **({'Page': Page} if Page > 1 else {})}), Notice=Notice, Error=Error, Today=date.today(),
+        Persons=Database.RowListLoad(
+            'SELECT p.PersonID, p.PersonLabel, COUNT(*) AS ClaimCount FROM dbo.SourceClaims sc LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson '
+            'WHERE sc.SourceClaimID > 0 AND sc.SourceClaimStatus <> 503 AND p.PersonID > 0 GROUP BY p.PersonID, p.PersonLabel ORDER BY ClaimCount DESC, p.PersonLabel'),
+        VerdictOptions=ClaimVerdictOptions, WindowOptions=ClaimWindowOptions, SortOptions=ClaimSortOptions,
+        StatusOptions=Registry.ReferenceOptionListLoad(Info.ColumnGet('SourceClaimStatus')),
+        KindOptions=Registry.ReferenceOptionListLoad(Info.ColumnGet('SourceClaimType')),
+        CategoryOptions=Registry.ReferenceOptionListLoad(Registry.TableGet('Claims').ColumnGet('ClaimCategory')),
+        OutcomeOptions=[(Row['ClaimOutcomeID'], f"{Row['GroupLabel']}: {Row['ClaimOutcomeLabel']}") for Row in Database.RowListLoad(
+            'SELECT o.ClaimOutcomeID, o.ClaimOutcomeLabel, g.ClaimOutcomeLabel AS GroupLabel FROM dbo.ClaimOutcomes o '
+            'LEFT OUTER JOIN dbo.ClaimOutcomes g ON g.ClaimOutcomeID = o.ClaimOutcomeMaster WHERE o.ClaimOutcomeMaster > 1 ORDER BY g.ClaimOutcomeOrder, o.ClaimOutcomeOrder')],
+        ScoreOptions=[(Row['ScoreID'], f"{Row['ScoreID']:+d}  {Row['ScoreLabel']}" if Row['ScoreID'] else f"0  {Row['ScoreLabel']}")
+                      for Row in Database.RowListLoad('SELECT ScoreID, ScoreLabel FROM dbo.Scores ORDER BY ScoreID DESC')],
+        SearchCountMax=Config.AssessSearchCountMax, AnalysisStatus=Analysis.StatusGet())
+
+
+@App.post('/SourceClaims/Bulk')
+async def SourceClaimBulk(request: Request):
+    Form = await request.form()
+    Action, Return = Form.get('Action') or '', Form.get('Return') or ''
+    IDs = [int(Value) for Value in Form.getlist('SourceClaims') if re.fullmatch(r'\d+', Value)]
+
+    def Back(**Message):
+        return f"/SourceClaims?{Return}{'&' if Return else ''}{urlencode(Message)}"
+
+    def Work():
+        if not IDs:
+            return Back(Error='Tick at least one claim first.')
+        Marks = ', '.join('?' for _ in IDs)
+        try:
+            if Action == 'Analyse':
+                return f'/Jobs/View/{Assessment.SourceClaimAssessBatchCreate(IDs)}'
+            if Action in ('Confirm', 'Reject', 'Reopen'):
+                Status = {'Confirm': 502, 'Reject': 503, 'Reopen': 501}[Action]
+                Count = Database.StatementExecute(
+                    f'UPDATE dbo.SourceClaims SET SourceClaimStatus = ?, SourceClaimDateReviewed = SYSUTCDATETIME(), SourceClaimUserReviewer = ? '
+                    f'WHERE SourceClaimID IN ({Marks})', Status, Config.UserAdministrator, *IDs)
+                return Back(Notice=f"{Count} claim{'' if Count == 1 else 's'} {'confirmed' if Status == 502 else 'rejected' if Status == 503 else 'set back to unreviewed'}.")
+            if Action == 'VerdictConfirm':
+                Count = Database.StatementExecute(
+                    f'UPDATE dbo.Assessments SET AssessmentStatus = 602 WHERE AssessmentIsCurrent = 1 AND AssessmentStatus = 601 '
+                    f'AND AssessmentSourceClaim IN ({Marks})', *IDs)
+                return Back(Notice=f"{Count} proposed verdict{'' if Count == 1 else 's'} confirmed." if Count else 'None of the ticked claims had a proposed verdict to confirm.')
+            if Action == 'Verdict':
+                Count = Assessment.SourceClaimVerdictSet(IDs, int(Form.get('Outcome') or 0), Form.get('Score'))
+                return Back(Notice=f"Verdict recorded for {Count} claim{'' if Count == 1 else 's'}.")
+        except Analysis.AnalysisError as Problem:
+            return Back(Error=str(Problem))
+        return Back()
+
+    return RedirectResponse(await run_in_threadpool(Work), status_code=303)

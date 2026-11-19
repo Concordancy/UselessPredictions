@@ -19,10 +19,8 @@ EffortExtract = os.environ.get('UPEffortExtract', 'medium')
 EffortAssess = os.environ.get('UPEffortAssess', 'medium')
 EffortReport = os.environ.get('UPEffortReport', 'high')
 
-# Evidence search: the most web searches one verdict may use (searches are billed per use),
-# and the most assertions one batch job works through.
+# Evidence search: the most web searches one verdict may use (searches are billed per use).
 AssessSearchCountMax = int(os.environ.get('UPAssessSearchCountMax', '8'))
-AssessBatchCountMax = int(os.environ.get('UPAssessBatchCountMax', '25'))
 
 # How many sources / assertions a batch job works on at the same time.
 ExtractWorkerCount = int(os.environ.get('UPExtractWorkerCount', '4'))

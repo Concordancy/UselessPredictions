@@ -105,6 +105,14 @@ textarea { width: 100%; resize: vertical; line-height: 1.45; }
 .Score.Plus { color: var(--Good); }
 .Score.Minus { color: var(--Bad); }
 
+.Bulk { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: .5rem .9rem; align-items: center; padding: .55rem .8rem; margin: .4rem 0 .5rem; background: var(--Surface); border: 1px solid var(--LineStrong); border-radius: 8px; }
+.BulkCount { min-width: 5.5rem; color: var(--InkSoft); }
+.BulkCount b { color: var(--Ink); font-variant-numeric: tabular-nums; }
+.BulkGroup { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding-left: .9rem; border-left: 1px solid var(--Line); }
+.BulkGroup select { max-width: 230px; }
+th.Check, td.Check { width: 2.2rem; text-align: center; }
+td.Check input, th.Check input { width: 1.05rem; height: 1.05rem; }
+td.NoWrap { white-space: nowrap; }
 .Review { display: flex; flex-wrap: wrap; gap: .6rem .9rem; align-items: center; margin: .6rem 0 0; }
 .Review .Muted { flex-basis: 100%; }
 .Said { margin: .5rem 0 1rem; padding: .7rem 1rem; border-left: 3px solid var(--Accent); background: var(--Surface); border-radius: 0 8px 8px 0; max-width: 980px; font-size: 1.05rem; line-height: 1.55; }

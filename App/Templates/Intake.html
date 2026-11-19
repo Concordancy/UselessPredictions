@@ -1,0 +1,86 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<h1>Add a channel</h1>
+<p class="Lead">Paste a YouTube channel URL, a Substack address or an X account. The channel is looked up first; you then choose what to import.</p>
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+
+<form class="Record" method="post" action="/Intake/Lookup">
+    <div class="Field">
+        <label for="Input">Channel</label>
+        <input id="Input" name="Input" type="text" value="{{ Input }}" placeholder="https://www.youtube.com/@handle" autofocus required>
+    </div>
+    <div class="Field">
+        <label for="Platform">Platform</label>
+        <select id="Platform" name="Platform">
+            <option value="0">Detect from the address</option>
+            {% for ID, Label, Hint, Usable, Note in Platforms %}
+            <option value="{{ ID }}"{% if Platform == ID %} selected{% endif %}>{{ Label }}{% if not Usable %} (not ready){% endif %}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="Actions"><button class="{{ '' if Channel else 'Primary' }}" type="submit">Look up channel</button></div>
+</form>
+
+{% if not Channel %}
+<table class="Hints">
+    <tbody>
+    {% for ID, Label, Hint, Usable, Note in Platforms %}
+    <tr><td>{{ Label }}</td><td class="Muted">{{ Hint }}</td><td>{% if not Usable %}<span class="Badge Bad">Not ready</span> <span class="Muted">{{ Note }}</span>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<h2>{{ Channel.Label }}</h2>
+<dl class="Facts">
+    <dt>Address</dt><dd><a href="{{ Channel.URL }}" target="_blank" rel="noopener noreferrer">{{ Channel.URL }}</a></dd>
+    {% if Channel.Handle %}<dt>Handle</dt><dd>{{ Channel.Handle }}</dd>{% endif %}
+    {% if Channel.FollowerCount %}<dt>Followers</dt><dd>{{ Channel.FollowerCount | Text('Number') }}</dd>{% endif %}
+    {% if Channel.SourceCount %}<dt>Items on the platform</dt><dd>{{ Channel.SourceCount | Text('Number') }}</dd>{% endif %}
+    {% if Channel.DateStart %}<dt>Active since</dt><dd>{{ Channel.DateStart.strftime('%Y-%m-%d') }}</dd>{% endif %}
+    {% if Channel.Description %}<dt>Description</dt><dd>{{ Channel.Description[:400] }}</dd>{% endif %}
+    {% if Known %}<dt>Already stored</dt><dd>{{ Known.SourceCount | Text('Number') }} sources, belonging to <a href="/Persons/View/{{ Known.ChannelPerson }}">{{ Known.PersonLabel }}</a>{% if Known.ChannelCoverageDateStart %}; complete from {{ Known.ChannelCoverageDateStart }} to {{ Known.ChannelCoverageDateEnd }}{% endif %}</dd>{% endif %}
+</dl>
+
+<form class="Record" method="post" action="/Intake/Import">
+    <input type="hidden" name="Input" value="{{ Input }}">
+    <input type="hidden" name="Platform" value="{{ Platform }}">
+    {% if not Known %}
+    <div class="Field">
+        <label for="Person">Belongs to</label>
+        <select id="Person" name="Person" onchange="document.getElementById('PersonLabelField').hidden = this.value !== '0'">
+            <option value="0">A new person</option>
+            {% for Row in Persons %}<option value="{{ Row.PersonID }}">{{ Row.PersonLabel }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="Field" id="PersonLabelField">
+        <label for="PersonLabel">Name of the person</label>
+        <input id="PersonLabel" name="PersonLabel" type="text" maxlength="320" value="{{ Channel.PersonLabel or Channel.Label }}">
+    </div>
+    {% endif %}
+    <div class="Field">
+        <label>Import</label>
+        <div class="Checks">
+            {% for Row in SourceTypes %}
+            <label><input type="checkbox" name="SourceTypes" value="{{ Row.SourceTypeID }}" checked> {{ Row.SourceTypeLabel }}</label>
+            {% endfor %}
+        </div>
+    </div>
+    <div class="Field">
+        <label for="DateStart">Published from</label>
+        <div class="Inline"><input id="DateStart" name="DateStart" type="date"> <span>to</span> <input name="DateEnd" type="date" aria-label="Published to"> <span class="Muted">Leave empty for everything.</span></div>
+    </div>
+    <div class="Field">
+        <label for="Limit">At most</label>
+        <div class="Inline"><input id="Limit" name="Limit" type="number" min="0" value="25"> <span class="Muted">newest items. 0 = no limit; only an unlimited import of every kind marks the period as completely covered.</span></div>
+    </div>
+    <div class="Field">
+        <label>Options</label>
+        <div class="Checks">
+            <label><input type="checkbox" name="ContentLoad" checked> Fetch the text (article body or transcript) of each new item</label>
+            <label><input type="checkbox" name="ClaimHeadlineAdd" checked> Record each title as the item's headline claim, to be reviewed</label>
+        </div>
+    </div>
+    <div class="Actions"><button class="Primary" type="submit">Import sources</button></div>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,45 @@
+{% extends "Layout.html" %}
+{% block Head %}{% if IsActive %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
+{% block Content %}
+<p class="Crumbs"><a href="/Manage/Reports">Reports</a> / #{{ Report.ReportID }}</p>
+<div class="Heading">
+    <h1>{{ Report.ReportLabel }}</h1>
+    <a class="Button" href="/Manage/Reports/Edit/{{ Report.ReportID }}">Edit details</a>
+</div>
+<p><span class="Badge {{ 'Bad' if Report.ReportStatus == 1206 else '' }}">{{ Report.StatusLabel }}</span>
+    <span class="Muted">{{ Report.TypeLabel }}{% if Report.ReportPerson %} on <a href="/Persons/View/{{ Report.ReportPerson }}">{{ Report.PersonLabel }}</a>{% endif %}
+    · <a href="/Manage/ReportSourceClaims?RSCReport={{ Report.ReportID }}">{{ Report.ReportClaimCount }} assertions</a> from {{ Report.ReportSourceCount }} sources{% if Report.ReportCoverageDateStart %}, published {{ Report.ReportCoverageDateStart }} to {{ Report.ReportCoverageDateEnd }}{% endif %}
+    {% if Report.ReportModel %} · written by {{ Report.ReportModel }}{% endif %}</span></p>
+
+{% if IsActive %}
+<p class="Alert">The analyst is reading the material and writing. This usually takes a few minutes; the page refreshes by itself.</p>
+{% elif Report.ReportStatus == 1206 %}
+<p class="Alert Bad">{{ Report.ReportSummary or 'The report could not be written.' }}</p>
+{% else %}
+<p class="Notice">Written by an AI model from the assertions listed. Outcomes and scores it cites were recorded separately; its reading of the person's outlook is interpretation, not a finding.</p>
+<h2>Summary</h2>
+<div class="Prose">{% for Paragraph in Report.ReportSummary.split('\n') if Paragraph.strip() %}<p>{{ Paragraph }}</p>{% endfor %}</div>
+
+{% if Dimensions %}
+<h2>Scores</h2>
+<table>
+    <thead><tr><th>Quality</th><th class="Num">Score</th><th class="Num">Based on</th><th>Why</th></tr></thead>
+    <tbody>
+    {% for Row in Dimensions %}
+    <tr><td title="{{ Row.DimensionDescription }}">{{ Row.DimensionLabel }}</td>
+        <td class="Num">{% if Row.ReportDimensionScore is not none %}<span class="Score {{ 'Plus' if Row.ReportDimensionScore > 0 else ('Minus' if Row.ReportDimensionScore < 0 else '') }}">{{ '%+d' | format(Row.ReportDimensionScore) if Row.ReportDimensionScore else '0' }}</span>{% else %}<span class="Muted">too little data</span>{% endif %}</td>
+        <td class="Num">{{ Row.ReportDimensionClaimCount }}</td><td>{{ Row.ReportDimensionRationale }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<h2>Full report</h2>
+<div class="Prose">{{ Report.ReportText | Markdown }}</div>
+{% endif %}
+
+<details class="Content">
+    <summary>What the analyst was asked</summary>
+    <pre>{{ Report.ReportInstruction }}</pre>
+</details>
+{% endblock %}

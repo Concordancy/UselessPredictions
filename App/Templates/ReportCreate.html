@@ -1,0 +1,44 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<h1>New report</h1>
+<p class="Lead">Send a selection of assertions to the AI analyst and get back a written analysis. A verdict also scores the person on each quality (accuracy, coherence, consistency, accountability and more).</p>
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+{% if not AnalysisStatus[0] %}<p class="Alert Bad">{{ AnalysisStatus[1] }}</p>{% endif %}
+
+<form class="Record" method="post" action="/Reports/Create">
+    <div class="Field">
+        <label for="Type">Kind</label>
+        <select id="Type" name="Type" onchange="document.getElementById('Instruction').placeholder = this.selectedOptions[0].dataset.default">
+            <option value="1202" data-default="{{ Defaults[1202] }}"{% if Type == 1202 %} selected{% endif %}>Analysis of the selected assertions</option>
+            <option value="1201" data-default="{{ Defaults[1201] }}"{% if Type == 1201 %} selected{% endif %}>Verdict on a person (with scores)</option>
+        </select>
+    </div>
+    <div class="Field">
+        <label for="Person">Person</label>
+        <select id="Person" name="Person">
+            <option value="0">Everyone</option>
+            {% for Row in Persons %}<option value="{{ Row.PersonID }}"{% if Person == Row.PersonID %} selected{% endif %}>{{ Row.PersonLabel }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="Field">
+        <label for="Category">Subject</label>
+        <select id="Category" name="Category">
+            {% for ID, Label in Categories %}<option value="{{ ID }}">{{ Label if ID else 'All subjects' }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="Field">
+        <label for="DateStart">Published from</label>
+        <div class="Inline"><input id="DateStart" name="DateStart" type="date"> <span>to</span> <input name="DateEnd" type="date" aria-label="Published to"></div>
+    </div>
+    <div class="Field">
+        <label for="ConfirmedOnly">Reviewed only</label>
+        <div class="Checks"><label><input id="ConfirmedOnly" type="checkbox" name="ConfirmedOnly"> Leave out assertions that nobody has confirmed yet</label></div>
+    </div>
+    <div class="Field Long">
+        <label for="Instruction">What to analyse</label>
+        <textarea id="Instruction" name="Instruction" rows="5" maxlength="4000" placeholder="{{ Defaults[Type] }}"></textarea>
+        <span class="Muted">Leave empty to use the standard question shown.</span>
+    </div>
+    <div class="Actions"><button class="Primary" type="submit"{% if not AnalysisStatus[0] %} disabled{% endif %}>Write report</button></div>
+</form>
+{% endblock %}

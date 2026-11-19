@@ -1,0 +1,26 @@
+{% extends "Layout.html" %}
+{% block Head %}{% if IsActive %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block Content %}
+<p class="Crumbs"><a href="/Manage/Jobs">Jobs</a> / #{{ Job.JobID }}</p>
+<h1>{{ Job.JobLabel }}</h1>
+<p><span class="Badge {{ 'Good' if Job.JobStatus == 903 else ('Bad' if Job.JobStatus == 905 else 'Warn' if Job.JobStatus == 904 else '') }}">{{ Job.StatusLabel }}</span>
+    {% if IsActive %}<span class="Muted">This page refreshes by itself while the job runs.</span>{% endif %}</p>
+{% if Job.JobMessage %}<p class="Alert {{ 'Bad' if Job.JobStatus == 905 else '' }}">{{ Job.JobMessage }}</p>{% endif %}
+
+<dl class="Facts">
+    <dt>Kind</dt><dd>{{ Job.TypeLabel }}</dd>
+    <dt>Found</dt><dd>{{ Job.JobItemCountFound | Text('Number') }}</dd>
+    <dt>{{ 'Analysed' if Job.JobType == 904 else 'New' }}</dt><dd>{{ Job.JobItemCountAdded | Text('Number') }}</dd>
+    {% if Job.JobChannel %}<dt>Channel</dt><dd><a href="/Manage/Sources?SourceChannel={{ Job.JobChannel }}">{{ Job.ChannelLabel }}</a></dd>{% endif %}
+    {% if Job.JobPerson %}<dt>Person</dt><dd><a href="/Persons/View/{{ Job.JobPerson }}">{{ Job.PersonLabel }}</a></dd>{% endif %}
+    <dt>Started</dt><dd>{{ Job.JobDateStart | Text or 'Not yet' }}</dd>
+    <dt>Finished</dt><dd>{{ Job.JobDateEnd | Text or 'Not yet' }}</dd>
+    {% if Parameters %}
+    <dt>Requested</dt><dd>{{ Parameters.Input }}{% if Parameters.DateStart or Parameters.DateEnd %}; published {{ Parameters.DateStart or 'any time' }} to {{ Parameters.DateEnd or 'now' }}{% endif %}{% if Parameters.Limit %}; at most {{ Parameters.Limit }}{% endif %}{% if Parameters.ContentLoad %}; with text{% endif %}</dd>
+    {% endif %}
+</dl>
+{% if not IsActive and Job.JobChannel %}
+<p><a class="Button Primary" href="/Manage/Sources?SourceChannel={{ Job.JobChannel }}">View the sources</a>
+   {% if Job.JobPerson %}<a class="Button" href="/Persons/View/{{ Job.JobPerson }}">Open the person</a>{% endif %}</p>
+{% endif %}
+{% endblock %}

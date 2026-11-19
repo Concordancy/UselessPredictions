@@ -1,0 +1,66 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<p class="Crumbs"><a href="/Manage/Sources">Sources</a> / #{{ Source.SourceID }}</p>
+<div class="Heading">
+    <h1>{{ Source.SourceLabel }}</h1>
+    <a class="Button" href="/Manage/Sources/Edit/{{ Source.SourceID }}">Edit details</a>
+</div>
+{% if Notice %}<p class="Alert Good">{{ Notice }}</p>{% endif %}
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+
+<dl class="Facts">
+    <dt>Published</dt><dd>{{ Source.SourceDatePublished | Text }} UTC</dd>
+    <dt>By</dt><dd>{% if Source.ChannelPerson %}<a href="/Persons/View/{{ Source.ChannelPerson }}">{{ Source.PersonLabel }}</a>{% endif %} on {{ Source.ChannelLabel }} ({{ Source.PlatformLabel }})</dd>
+    <dt>Kind</dt><dd>{{ Source.SourceTypeLabel }}{% if Source.SourceDuration %}, {{ Source.SourceDuration | Duration }}{% endif %}{% if Source.SourceIsPaywalled %}, paywalled{% endif %}</dd>
+    <dt>Status</dt><dd>{{ Source.StatusLabel }}</dd>
+    <dt>Address</dt><dd><a href="{{ Source.SourceURL }}" target="_blank" rel="noopener noreferrer">{{ Source.SourceURL }}</a></dd>
+    {% if Source.SourceViewCount or Source.SourceLikeCount %}<dt>Reach</dt><dd>{% if Source.SourceViewCount %}{{ Source.SourceViewCount | Text('Number') }} views, {% endif %}{{ Source.SourceLikeCount | Text('Number') }} likes, {{ Source.SourceCommentCount | Text('Number') }} comments</dd>{% endif %}
+</dl>
+
+<div class="Heading">
+    <h2>Assertions in this source</h2>
+    <div>
+        <form class="InlineForm" method="post" action="/Sources/ClaimExtract/{{ Source.SourceID }}"
+              onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Reading the source (can take a minute) ...';">
+            <button class="Primary" type="submit"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Extract claims with AI</button>
+        </form>
+        <a class="Button" href="/Manage/SourceClaims/Create?SourceClaimSource={{ Source.SourceID }}&SourceClaimPerson={{ Source.ChannelPerson or 0 }}">Add one by hand</a>
+    </div>
+</div>
+{% if not AnalysisStatus[0] %}<p class="Muted">{{ AnalysisStatus[1] }}</p>{% endif %}
+{% if Claims %}
+<div class="TableWrap">
+<table>
+    <thead><tr><th>Assertion</th><th>By</th><th>Certainty</th><th>Timing</th><th>Due window</th><th>Outcome</th><th class="Num">Score</th><th>Review</th></tr></thead>
+    <tbody>
+    {% for Row in Claims %}
+    <tr>
+        <td class="Wide"><a href="/SourceClaims/View/{{ Row.SourceClaimID }}">{{ Row.SourceClaimLabel }}</a>{% if Row.SourceClaimIsPrimary %} <span class="Badge">Headline</span>{% endif %}
+            {% if Row.SourceClaimQuote and Row.SourceClaimQuote != Row.SourceClaimLabel %}<div class="Quote">"{{ Row.SourceClaimQuote[:400] }}"{% if Row.SourceClaimOffsetStart %} <span class="Muted">at {{ Row.SourceClaimOffsetStart | Duration }}</span>{% endif %}</div>{% endif %}</td>
+        <td>{{ Row.PersonLabel or '' }}</td>
+        <td>{{ Row.ClaimCertaintyLabel if Row.ClaimCertaintyLabel != 'Unspecified' else '' }}</td>
+        <td>{{ Row.ClaimTimeframeLabel if Row.ClaimTimeframeLabel != 'Unspecified' else '' }}</td>
+        <td>{% if Row.SourceClaimDueDateMin or Row.SourceClaimDueDateMax %}{{ Row.SourceClaimDueDateMin or '?' }} to {{ Row.SourceClaimDueDateMax or '?' }}{% endif %}</td>
+        <td>{{ Row.ClaimOutcomeLabel or 'Unassessed' }}{% if Row.AssessmentStatus == 601 %} <span class="Badge Warn">Proposed</span>{% endif %}{% if not Row.AssessmentID %} <a class="Small" href="/SourceClaims/View/{{ Row.SourceClaimID }}">assess</a>{% endif %}</td>
+        <td class="Num">{% if Row.AssessmentScore is not none %}{{ '%+d' | format(Row.AssessmentScore) if Row.AssessmentScore else '0' }}{% endif %}</td>
+        <td>{{ Row.SourceClaimStatusLabel or '' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}<p class="Empty">No assertions recorded for this source yet.</p>{% endif %}
+
+<div class="Heading">
+    <h2>Stored text</h2>
+    <form class="InlineForm" method="post" action="/Sources/ContentLoad/{{ Source.SourceID }}"><button type="submit">Fetch text again</button></form>
+</div>
+{% if Contents %}
+{% for Row in Contents %}
+<details class="Content"{% if Row.SourceContentType == 308 %} open{% endif %}>
+    <summary>{{ Row.TypeLabel }} <span class="Muted">{{ Row.SourceContentLength | Text('Number') }} characters{% if Row.SourceContentLanguage %}, {{ Row.SourceContentLanguage }}{% endif %}, via {{ Row.SourceContentOrigin }}, fetched {{ Row.SourceContentDateFetched | Text }}</span></summary>
+    <pre>{{ Row.SourceContentText }}</pre>
+</details>
+{% endfor %}
+{% else %}<p class="Empty">No text is stored for this source yet.</p>{% endif %}
+{% endblock %}

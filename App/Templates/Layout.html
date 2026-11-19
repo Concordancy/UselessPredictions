@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ Title }} - Useless Predictions</title>
+    <link rel="stylesheet" href="/Static/Style.css">
+    {% block Head %}{% endblock %}
+</head>
+<body>
+<aside class="Menu">
+    <a class="MenuBrand" href="/">Useless Predictions</a>
+    <nav>
+        <a class="MenuAction" href="/Intake">Add a channel</a>
+        <a class="MenuAction" href="/Reports/Create">New report</a>
+        {% for Group, Tables in Menu %}
+        <div class="MenuGroup">{{ Group }}</div>
+        {% for Table in Tables %}
+        <a href="/Manage/{{ Table }}"{% if Info is defined and Info.Table == Table %} class="MenuCurrent"{% endif %}>{{ Table | Words }}</a>
+        {% endfor %}
+        {% endfor %}
+    </nav>
+</aside>
+<main>
+    {% block Content %}{% endblock %}
+</main>
+</body>
+</html>

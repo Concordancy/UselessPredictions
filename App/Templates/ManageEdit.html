@@ -1,0 +1,69 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<p class="Crumbs"><a href="/Manage/{{ Info.Table }}">{{ Info.Table | Words }}</a>{% if not IsNew %} / #{{ KeyValue }}{% endif %}</p>
+<div class="Heading">
+    <h1>{{ Title }}</h1>
+    {% if not IsNew and Info.Table in ViewRouteMap %}<a class="Button" href="{{ ViewRouteMap[Info.Table] }}{{ KeyValue }}">Open page</a>{% endif %}
+</div>
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+{% if request.query_params.get('Saved') %}<p class="Alert Good">Saved.</p>{% endif %}
+
+<form class="Record" method="post" action="/Manage/{{ Info.Table }}/Save">
+    <input type="hidden" name="KeyValue" value="{{ '' if IsNew else KeyValue }}">
+    {% for Field in Fields %}
+    <div class="Field{% if Field.Kind == 'TextLong' %} Long{% endif %}">
+        <label for="{{ Field.Name }}">{{ Field.Title }}</label>
+        {% if Field.ReadOnly %}
+            <div class="ReadOnly">{{ Field.Value | Text }}</div>
+        {% elif Field.Kind == 'Reference' and Field.Options is not none %}
+            <select id="{{ Field.Name }}" name="{{ Field.Name }}">
+                {% if Field.IsNullable %}<option value=""{% if Field.Value is none %} selected{% endif %}>(not set)</option>{% endif %}
+                {% for ID, Label in Field.Options %}
+                <option value="{{ ID }}"{% if Field.Value == ID or (Field.Value is none and ID == 0 and not Field.IsNullable) %} selected{% endif %}>{{ Label if (ID != 0 or Field.ReferenceTable == 'Scores') else '(none)' }}</option>
+                {% endfor %}
+            </select>
+        {% elif Field.Kind == 'Reference' %}
+            <div class="Lookup">
+                <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="number" value="{{ Field.Value if Field.Value is not none else 0 }}">
+                {% if Field.Value %}<a href="/Manage/{{ Field.ReferenceTable }}/Edit/{{ Field.Value }}">{{ Field.ReferenceLabel or ('#' ~ Field.Value) }}</a>{% else %}<span class="Muted">ID of a record in <a href="/Manage/{{ Field.ReferenceTable }}">{{ Field.ReferenceTable | Words }}</a>; 0 = none</span>{% endif %}
+            </div>
+        {% elif Field.Kind == 'Flag' %}
+            <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="checkbox"{% if Field.Value %} checked{% endif %}>
+        {% elif Field.Kind == 'Number' %}
+            <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="number" value="{{ Field.Value if Field.Value is not none else '' }}">
+        {% elif Field.Kind == 'Decimal' %}
+            <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="number" step="any" value="{{ Field.Value if Field.Value is not none else '' }}">
+        {% elif Field.Kind == 'Date' %}
+            <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="date" value="{{ Field.Value if Field.Value is not none else '' }}">
+        {% elif Field.Kind == 'DateTime' %}
+            <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="datetime-local" step="1" value="{{ Field.Value if Field.Value is not none else '' }}">
+        {% elif Field.Kind == 'TextLong' %}
+            <textarea id="{{ Field.Name }}" name="{{ Field.Name }}" rows="{{ Field.Rows }}"{% if Field.Length > 0 %} maxlength="{{ Field.Length }}"{% endif %}>{{ Field.Value or '' }}</textarea>
+        {% else %}
+            <input id="{{ Field.Name }}" name="{{ Field.Name }}" type="text" value="{{ Field.Value if Field.Value is not none else '' }}"{% if Field.Length > 0 %} maxlength="{{ Field.Length }}"{% endif %}>
+            {% if Field.Name.endswith('URL') and Field.Value %}<a class="FieldLink" href="{{ Field.Value }}" target="_blank" rel="noopener noreferrer">Open</a>{% endif %}
+        {% endif %}
+    </div>
+    {% endfor %}
+    <div class="Actions">
+        <button class="Primary" type="submit">{{ 'Create' if IsNew else 'Save changes' }}</button>
+        <a href="/Manage/{{ Info.Table }}">Cancel</a>
+    </div>
+</form>
+
+{% if Related %}
+<h2>Related records</h2>
+<ul class="Related">
+    {% for OtherTable, ColumnName, Count, ColumnTitle in Related %}
+    <li><a href="/Manage/{{ OtherTable }}?{{ ColumnName }}={{ KeyValue }}">{{ Count }} in {{ OtherTable | Words }}</a> <span class="Muted">as {{ ColumnTitle | lower }}</span></li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+{% if not IsNew and not (KeyValue == 0 and Info.HasZeroRow) %}
+<form class="Danger" method="post" action="/Manage/{{ Info.Table }}/Delete/{{ KeyValue }}"
+      onsubmit="return confirm('Delete this {{ Info.KeyColumn[:-2] | Words | lower }}? Records that refer to it are kept and will point at nothing.');">
+    <button type="submit">Delete {{ Info.KeyColumn[:-2] | Words | lower }}</button>
+</form>
+{% endif %}
+{% endblock %}

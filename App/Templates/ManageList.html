@@ -1,0 +1,74 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<div class="Heading">
+    <h1>{{ Title }}</h1>
+    <a class="Button Primary" href="/Manage/{{ Info.Table }}/Create{% if CreateQuery %}?{{ CreateQuery }}{% endif %}">Create {{ Info.KeyColumn[:-2] | Words }}</a>
+</div>
+
+<form class="Filters" method="get" action="/Manage/{{ Info.Table }}">
+    <label>Search <input type="search" name="Search" value="{{ Search }}" placeholder="Text in any field"></label>
+    {% for Column, ColumnTitle, Options in FilterOptions %}
+    <label>{{ ColumnTitle }}
+        <select name="{{ Column.Name }}" onchange="this.form.submit()">
+            <option value="">All</option>
+            {% for ID, Label in Options %}{% if ID != 0 or Info.Table == 'Assessments' %}
+            <option value="{{ ID }}"{% if Filters.get(Column.Name) == ID %} selected{% endif %}>{{ Label }}</option>
+            {% endif %}{% endfor %}
+        </select>
+    </label>
+    {% endfor %}
+    {% for Name, Value in FilterHidden.items() %}
+    <input type="hidden" name="{{ Name }}" value="{{ Value }}">
+    {% endfor %}
+    <button type="submit">Search</button>
+    {% if Search or Filters %}<a href="/Manage/{{ Info.Table }}">Clear filters</a>{% endif %}
+</form>
+{% if FilterNotes %}
+<p class="Muted">Showing only: {% for FilterTitle, Label in FilterNotes %}<b>{{ FilterTitle }}</b> = {{ Label }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
+{% endif %}
+
+{% if Rows %}
+<div class="TableWrap">
+<table>
+    <thead><tr>
+        <th class="Num">ID</th>
+        {% for Column in Columns %}<th{% if Column.Kind in ('Number', 'Decimal') %} class="Num"{% endif %}>{{ Titles[Column.Name] }}</th>{% endfor %}
+        <th></th>
+    </tr></thead>
+    <tbody>
+    {% for Row in Rows %}
+    {% set ID = Row[Info.KeyColumn] %}
+    <tr>
+        <td class="Num"><a href="/Manage/{{ Info.Table }}/Edit/{{ ID }}">{{ ID }}</a></td>
+        {% for Column in Columns %}
+        {% set Value = Row[Column.Name] %}
+        {% if Column.Name == Info.LabelColumn %}
+        <td class="Wide"><a href="{{ ViewRouteMap.get(Info.Table, '/Manage/' ~ Info.Table ~ '/Edit/') }}{{ ID }}">{{ (Value | Text)[:140] or '(no label)' }}</a></td>
+        {% elif Column.Kind == 'Reference' %}
+        <td>{% if Value %}{% if Column.Reference[0] in ('Types', 'Statuses', 'Scores') %}{{ Labels[Column.Name].get(Value, Value) }}{% else %}<a href="{{ ViewRouteMap.get(Column.Reference[0], '/Manage/' ~ Column.Reference[0] ~ '/Edit/') }}{{ Value }}">{{ (Labels[Column.Name].get(Value, '#' ~ Value) | string)[:70] }}</a>{% endif %}{% elif Value == 0 and Column.Reference[0] == 'Scores' %}0 {{ Labels[Column.Name].get(0, '') }}{% endif %}</td>
+        {% elif Column.Kind == 'Flag' %}
+        <td>{{ 'Yes' if Value else '' }}</td>
+        {% elif Column.Name.endswith('URL') and Value %}
+        <td><a href="{{ Value }}" target="_blank" rel="noopener noreferrer">{{ Value[:50] }}</a></td>
+        {% else %}
+        <td{% if Column.Kind in ('Number', 'Decimal') %} class="Num"{% endif %}>{{ (Value | Text(Column.Kind))[:110] }}</td>
+        {% endif %}
+        {% endfor %}
+        <td class="RowActions"><a href="/Manage/{{ Info.Table }}/Edit/{{ ID }}">Edit</a></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+<div class="Paging">
+    <span>{{ Total | Text('Number') }} record{{ '' if Total == 1 else 's' }}</span>
+    {% if PageCount > 1 %}
+    {% if Page > 1 %}<a href="?{{ QueryString }}{{ '&' if QueryString }}Page={{ Page - 1 }}">Previous</a>{% endif %}
+    <span>Page {{ Page }} of {{ PageCount }}</span>
+    {% if Page < PageCount %}<a href="?{{ QueryString }}{{ '&' if QueryString }}Page={{ Page + 1 }}">Next</a>{% endif %}
+    {% endif %}
+</div>
+{% else %}
+<p class="Empty">{% if Search or Filters %}Nothing matches these filters.{% else %}No {{ Title | lower }} recorded yet.{% endif %}</p>
+{% endif %}
+{% endblock %}

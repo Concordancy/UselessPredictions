@@ -1,0 +1,129 @@
+{% extends "Layout.html" %}
+{% macro ScoreCell(Value) %}{% if Value is not none %}<span class="Score {{ 'Plus' if Value > 0 else ('Minus' if Value < 0 else '') }}">{{ '%+d' | format(Value) if Value else '0' }}</span>{% endif %}{% endmacro %}
+{% block Content %}
+<p class="Crumbs"><a href="/Manage/SourceClaims">Source Claims</a> / #{{ Claim.SourceClaimID }}</p>
+<div class="Heading">
+    <h1>{{ Claim.SourceClaimLabel }}</h1>
+    <a class="Button" href="/Manage/SourceClaims/Edit/{{ Claim.SourceClaimID }}">Edit details</a>
+</div>
+{% if Notice %}<p class="Alert Good">{{ Notice }}</p>{% endif %}
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+
+<div class="Review">
+    <span class="Badge {{ 'Good' if Claim.SourceClaimStatus == 502 else ('Bad' if Claim.SourceClaimStatus == 503 else 'Warn') }}">{{ Claim.StatusLabel or 'Not reviewed' }}</span>
+    <form class="InlineForm" method="post" action="/SourceClaims/Review/{{ Claim.SourceClaimID }}">
+        {% if Claim.SourceClaimStatus != 502 %}<button class="Primary" name="Action" value="Confirm" type="submit">Confirm assertion</button>{% endif %}
+        {% if Claim.SourceClaimStatus != 503 %}<button name="Action" value="Reject" type="submit">Reject</button>{% endif %}
+        {% if Claim.SourceClaimStatus in (502, 503) %}<button name="Action" value="Reopen" type="submit">Back to unreviewed</button>{% endif %}
+    </form>
+    <span class="Muted">Confirm when the quote is accurate, attributed to the right person and the due window is fair. Reject what is not a checkable claim.</span>
+</div>
+
+<h2>What was said</h2>
+{% if Claim.SourceClaimQuote %}<blockquote class="Said">"{{ Claim.SourceClaimQuote }}"</blockquote>{% endif %}
+<dl class="Facts">
+    <dt>By</dt><dd>{% if Claim.SourceClaimPerson %}<a href="/Persons/View/{{ Claim.SourceClaimPerson }}">{{ Claim.PersonLabel }}</a>{% else %}<span class="Muted">not attributed</span>{% endif %}</dd>
+    <dt>In</dt><dd><a href="/Sources/View/{{ Claim.SourceClaimSource }}">{{ Claim.SourceLabel }}</a> <span class="Muted">{{ Claim.SourceTypeLabel }} on {{ Claim.PlatformLabel }}, {{ Claim.SourceDatePublished.strftime('%Y-%m-%d') if Claim.SourceDatePublished else '' }}{% if Claim.PartLabel %}, {{ Claim.PartLabel | lower }}{% endif %}</span>
+        {% if MomentURL %}<a class="Small" href="{{ MomentURL }}" target="_blank" rel="noopener noreferrer">{% if Claim.SourceClaimOffsetStart %}open at {{ Claim.SourceClaimOffsetStart | Duration }}{% else %}open original{% endif %}</a>{% endif %}</dd>
+    <dt>Kind</dt><dd>{{ Claim.TypeLabel or 'Not set' }}{% if Claim.SourceClaimMaster %} of <a href="/SourceClaims/View/{{ Claim.SourceClaimMaster }}">{{ Claim.MasterLabel }}</a>{% endif %}</dd>
+    {% if Claim.SourceClaimContext %}<dt>Caveats given</dt><dd>{{ Claim.SourceClaimContext }}</dd>{% endif %}
+    {% if Claim.SourceClaimCondition %}<dt>Precondition</dt><dd>{{ Claim.SourceClaimCondition }}</dd>{% endif %}
+    <dt>Certainty</dt><dd>{{ Claim.ClaimCertaintyLabel if Claim.SourceClaimCertainty else 'Not rated' }}</dd>
+    <dt>Timing</dt><dd>{{ Claim.ClaimTimeframeLabel if Claim.SourceClaimTimeframe else 'Not set' }}{% if Claim.SourceClaimTimeframeQuote %} <span class="Muted">"{{ Claim.SourceClaimTimeframeQuote }}"</span>{% endif %}
+        {% if Claim.SourceClaimTimeframeNote %}<div class="Muted">{{ Claim.SourceClaimTimeframeNote }}</div>{% endif %}</dd>
+    <dt>Due window</dt><dd>{% if Claim.SourceClaimDueDateMin or Claim.SourceClaimDueDateMax %}{{ Claim.SourceClaimDueDateMin or '?' }} to {{ Claim.SourceClaimDueDateMax or '?' }}
+        {% if Claim.SourceClaimDueDateMax %}<span class="Badge {{ '' if Claim.SourceClaimDueDateMax < Today else 'Warn' }}">{{ 'Window closed' if Claim.SourceClaimDueDateMax < Today else 'Window still open' }}</span>{% endif %}
+        {% else %}<span class="Muted">open-ended</span>{% endif %}</dd>
+    {% if Tags %}<dt>Nature</dt><dd>{% for Tag in Tags %}<span class="Badge">{{ Tag.ClaimTypeLabel }}</span> {% endfor %}</dd>{% endif %}
+</dl>
+
+<h2>The claim being tested</h2>
+{% if Claim.SourceClaimClaim %}
+<dl class="Facts">
+    <dt>Claim</dt><dd><a href="/Manage/Claims/Edit/{{ Claim.SourceClaimClaim }}">{{ Claim.ClaimLabel }}</a> <a class="Small" href="/Manage/SourceClaims?SourceClaimClaim={{ Claim.SourceClaimClaim }}">everyone who asserted it</a></dd>
+    {% if Claim.ClaimStatement %}<dt>Precisely</dt><dd>{{ Claim.ClaimStatement }}</dd>{% endif %}
+    <dt>Settled by</dt><dd>{{ Claim.ClaimCriteria or 'No resolution criteria written yet.' }}</dd>
+    <dt>Subject</dt><dd>{{ Claim.CategoryLabel or 'Not set' }}{% if Claim.ClaimValenceLabel %} · {{ Claim.ClaimValenceLabel | lower }}{% endif %}</dd>
+</dl>
+{% else %}
+<p class="Empty">Not linked to a canonical claim yet. Extract claims with AI on the <a href="/Sources/View/{{ Claim.SourceClaimSource }}">source page</a>, or choose one under Edit details. A verdict needs the claim's resolution criteria.</p>
+{% endif %}
+
+<div class="Heading">
+    <h2>Verdict</h2>
+    <div>
+        <form class="InlineForm" method="post" action="/SourceClaims/Assess/{{ Claim.SourceClaimID }}"
+              onsubmit="this.querySelector('button').disabled = true; this.querySelector('button').textContent = 'Searching for evidence (takes a few minutes) ...';">
+            <button class="{{ '' if Assessments else 'Primary' }}" type="submit"{% if not AnalysisStatus[0] or not Claim.SourceClaimClaim %} disabled title="{{ AnalysisStatus[1] or 'Link the assertion to a canonical claim first.' }}"{% endif %}>{{ 'Search again and propose a new verdict' if Assessments else 'Find evidence and propose a verdict' }}</button>
+        </form>
+        <a class="Button" href="/Manage/Assessments/Create?AssessmentSourceClaim={{ Claim.SourceClaimID }}&AssessmentType=602&AssessmentStatus=602{% if not Assessments %}&AssessmentIsCurrent=1{% endif %}">Enter one by hand</a>
+    </div>
+</div>
+{% if not AnalysisStatus[0] %}<p class="Muted">{{ AnalysisStatus[1] }}</p>{% endif %}
+{% if Assessments %}
+{% for Row in Assessments %}
+<section class="Verdict{% if not Row.AssessmentIsCurrent %} Old{% endif %}">
+    <div class="VerdictHead">
+        <div>
+            <b>{{ Row.ClaimOutcomeLabel or 'Unassessed' }}</b>
+            {% if Row.AssessmentScore is not none %}{{ ScoreCell(Row.AssessmentScore) }} <span class="Muted">{{ Row.ScoreLabel }}</span>{% endif %}
+            <span class="Badge {{ 'Good' if Row.AssessmentStatus == 602 else ('Warn' if Row.AssessmentStatus == 601 else '') }}">{{ Row.StatusLabel }}</span>
+            {% if not Row.AssessmentIsCurrent %}<span class="Badge">Not in force</span>{% endif %}
+        </div>
+        <form class="InlineForm" method="post" action="/Assessments/Review/{{ Row.AssessmentID }}">
+            {% if Row.AssessmentIsCurrent and Row.AssessmentStatus != 602 %}<button class="Primary" name="Action" value="Confirm" type="submit">Confirm verdict</button>{% endif %}
+            {% if Row.AssessmentIsCurrent and Row.AssessmentStatus == 602 %}<button name="Action" value="Reopen" type="submit">Back to proposed</button>{% endif %}
+            {% if Row.AssessmentIsCurrent %}<button name="Action" value="Discard" type="submit">Discard</button>{% endif %}
+            <a class="Button" href="/Manage/Assessments/Edit/{{ Row.AssessmentID }}">Change</a>
+        </form>
+    </div>
+    {% if Row.AssessmentLabel %}<p><b>{{ Row.AssessmentLabel }}</b></p>{% endif %}
+    {% if Row.AssessmentRationale %}<p class="Prose">{{ Row.AssessmentRationale | Rationale }}</p>{% endif %}
+    <p class="Muted">{{ Row.TypeLabel }}{% if Row.AssessmentModel %} ({{ Row.AssessmentModel }}){% endif %}, {{ Row.AssessmentDateAssessed | Text }} UTC{% if Row.AssessmentDateResolved %} · settled {{ Row.AssessmentDateResolved }}{% endif %}{% if Row.AssessmentConfidence %} · confidence {{ Row.AssessmentConfidence }}%{% endif %}</p>
+</section>
+{% endfor %}
+<p class="Muted">A verdict counts in scorecards only when both the assertion and the verdict are confirmed.</p>
+{% else %}
+<p class="Empty">No verdict yet.</p>
+{% endif %}
+
+<div class="Heading">
+    <h2>Evidence</h2>
+    <a class="Button" href="/Manage/ClaimCitations/Create?ClaimCitationSourceClaim={{ Claim.SourceClaimID }}&ClaimCitationClaim={{ Claim.SourceClaimClaim }}">Add a citation</a>
+</div>
+{% if Citations %}
+<div class="TableWrap">
+<table>
+    <thead><tr><th>Ref</th><th>Source</th><th>Published</th><th>Shows</th><th>Fact relied on</th></tr></thead>
+    <tbody>
+    {% for Row in Citations %}
+    <tr id="C{{ Row.CitationID }}">
+        <td><a href="/Manage/ClaimCitations/Edit/{{ Row.ClaimCitationID }}">C{{ Row.CitationID }}</a></td>
+        <td class="Wide">{% if Row.CitationURL %}<a href="{{ Row.CitationURL }}" target="_blank" rel="noopener noreferrer">{{ Row.CitationLabel }}</a>{% else %}{{ Row.CitationLabel }}{% endif %}
+            <div class="Muted">{{ Row.CitationPublisher }}{% if Row.KindLabel and Row.KindLabel != 'None' %} · {{ Row.KindLabel }}{% endif %}{% if not Row.ClaimCitationSourceClaim %} · applies to every assertion of this claim{% endif %}</div></td>
+        <td>{{ Row.CitationDatePublished or '' }}</td>
+        <td><span class="Badge {{ 'Good' if Row.ClaimCitationType == 801 else ('Bad' if Row.ClaimCitationType == 802 else '') }}">{{ Row.StanceLabel or 'Not set' }}</span></td>
+        <td class="Wide">{{ Row.ClaimCitationExcerpt }}{% if Row.ClaimCitationNote %}<div class="Muted">{{ Row.ClaimCitationNote }}</div>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}
+<p class="Empty">No evidence recorded yet.</p>
+{% endif %}
+
+{% if Related %}
+<h2>Related assertions</h2>
+<table>
+    <thead><tr><th>Published</th><th>Assertion</th><th>Relation</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for Row in Related %}
+    <tr><td>{{ Row.SourceDatePublished.strftime('%Y-%m-%d') if Row.SourceDatePublished else '' }}</td>
+        <td class="Wide"><a href="/SourceClaims/View/{{ Row.SourceClaimID }}">{{ Row.SourceClaimLabel }}</a></td>
+        <td>{{ Row.RelationLabel }}{% if Row.StatusLabel %} <span class="Badge">{{ Row.StatusLabel }}</span>{% endif %}</td><td>{{ Row.Note }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+{% endblock %}

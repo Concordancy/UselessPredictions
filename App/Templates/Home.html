@@ -1,0 +1,74 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<h1>Overview</h1>
+
+<div class="Tiles">
+    <a class="Tile" href="/Manage/Persons"><b>{{ Counts.Persons }}</b><span>People</span></a>
+    <a class="Tile" href="/Manage/Channels"><b>{{ Counts.Channels }}</b><span>Channels</span></a>
+    <a class="Tile" href="/Manage/Sources"><b>{{ Counts.Sources | Text('Number') }}</b><span>Sources</span></a>
+    <a class="Tile" href="/Manage/SourceClaims"><b>{{ Counts.SourceClaims | Text('Number') }}</b><span>Assertions</span></a>
+    <a class="Tile" href="/Manage/SourceClaims?SourceClaimStatus=501"><b>{{ Counts.SourceClaimsUnreviewed | Text('Number') }}</b><span>Awaiting review</span></a>
+    <a class="Tile" href="/Manage/Claims"><b>{{ Counts.Claims | Text('Number') }}</b><span>Canonical claims</span></a>
+    <a class="Tile" href="/Manage/Assessments?AssessmentIsCurrent=1"><b>{{ Counts.Assessments | Text('Number') }}</b><span>Verdicts</span></a>
+    <a class="Tile" href="/Manage/Reports"><b>{{ Counts.Reports }}</b><span>Reports</span></a>
+</div>
+
+<h2>People</h2>
+{% if Persons %}
+<div class="TableWrap">
+<table>
+    <thead><tr>
+        <th>Person</th><th class="Num">Channels</th><th class="Num">Sources</th><th class="Num">Predictions</th>
+        <th class="Num">Scored</th><th class="Num">Correct</th><th class="Num">Partly</th><th class="Num">Incorrect</th>
+        <th class="Num">Not scoreable</th><th class="Num">Average score</th>
+    </tr></thead>
+    <tbody>
+    {% for Row in Persons %}
+    <tr>
+        <td><a href="/Persons/View/{{ Row.PersonID }}">{{ Row.PersonLabel }}</a></td>
+        <td class="Num">{{ Row.PersonChannelCount }}</td>
+        <td class="Num">{{ Row.PersonSourceCount | Text('Number') }}</td>
+        <td class="Num">{{ Row.PersonClaimCount }}</td>
+        <td class="Num">{{ Row.PersonClaimCountScored }}</td>
+        <td class="Num">{{ Row.PersonClaimCountCorrect }}</td>
+        <td class="Num">{{ Row.PersonClaimCountPartial }}</td>
+        <td class="Num">{{ Row.PersonClaimCountIncorrect }}</td>
+        <td class="Num">{{ Row.PersonClaimCountUnscoreable }}</td>
+        <td class="Num">{% if Row.PersonScoreAverage is not none %}{{ '%+.1f' | format(Row.PersonScoreAverage) }}{% else %}<span class="Muted">none yet</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+<p class="Muted">Counts cover confirmed assertions only, so nothing an AI proposed counts for or against anyone until you have reviewed it.</p>
+{% else %}
+<p class="Empty">Nobody is tracked yet. <a href="/Intake">Add a channel</a> to start.</p>
+{% endif %}
+
+<div class="Columns">
+    <section>
+        <h2>Recent jobs</h2>
+        {% if Jobs %}
+        <table>
+            <thead><tr><th>Job</th><th>Status</th><th class="Num">Found</th><th class="Num">Added</th><th>Created</th></tr></thead>
+            <tbody>
+            {% for Job in Jobs %}
+            <tr><td><a href="/Jobs/View/{{ Job.JobID }}">{{ Job.JobLabel }}</a></td><td>{{ Job.StatusLabel }}</td>
+                <td class="Num">{{ Job.JobItemCountFound }}</td><td class="Num">{{ Job.JobItemCountAdded }}</td><td>{{ Job.JobDateCreated | Text }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}<p class="Empty">No jobs have run yet.</p>{% endif %}
+    </section>
+    <section>
+        <h2>Connections</h2>
+        <table>
+            <tbody>
+            {% for Label, Usable, Note in Services %}
+            <tr><td>{{ Label }}</td><td><span class="Badge {{ 'Good' if Usable else 'Bad' }}">{{ 'Ready' if Usable else 'Not ready' }}</span></td><td class="Muted">{{ Note }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </section>
+</div>
+{% endblock %}

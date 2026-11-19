@@ -1,0 +1,131 @@
+{% extends "Layout.html" %}
+{% macro ScoreCell(Value) %}{% if Value is not none %}<span class="Score {{ 'Plus' if Value > 0 else ('Minus' if Value < 0 else '') }}">{{ '%+d' | format(Value) if Value else '0' }}</span>{% else %}<span class="Muted">-</span>{% endif %}{% endmacro %}
+{% block Content %}
+<p class="Crumbs"><a href="/Manage/Persons">Persons</a> / #{{ Person.PersonID }}</p>
+<div class="Heading">
+    <h1>{{ Person.PersonLabel }}</h1>
+    <a class="Button" href="/Manage/Persons/Edit/{{ Person.PersonID }}">Edit details</a>
+</div>
+<p class="Muted">{{ Person.TypeLabel or 'Type not set' }} · {{ Person.StatusLabel or 'Status not set' }}{% if Person.CategoryLabel and Person.PersonCategory %} · {{ Person.CategoryLabel }}{% endif %}</p>
+{% if Person.PersonDescription %}<p>{{ Person.PersonDescription }}</p>{% endif %}
+{% if Notice %}<p class="Alert">{{ Notice }}</p>{% endif %}
+
+<h2>Record so far</h2>
+{% if Score and Score.PersonClaimCount %}
+<div class="Tiles">
+    <div class="Tile"><b>{{ Score.PersonClaimCount }}</b><span>Predictions</span></div>
+    <div class="Tile"><b>{{ Score.PersonClaimCountCorrect }}</b><span>Correct</span></div>
+    <div class="Tile"><b>{{ Score.PersonClaimCountPartial }}</b><span>Partly correct</span></div>
+    <div class="Tile"><b>{{ Score.PersonClaimCountIncorrect }}</b><span>Incorrect</span></div>
+    <div class="Tile"><b>{{ Score.PersonClaimCountUnscoreable }}</b><span>Not scoreable</span></div>
+    <div class="Tile"><b>{{ Score.PersonClaimCountOpen }}</b><span>Open</span></div>
+    <div class="Tile"><b>{% if Score.PersonScoreAverage is not none %}{{ '%+.1f' | format(Score.PersonScoreAverage) }}{% else %}-{% endif %}</b><span>Average score</span></div>
+    <div class="Tile"><b>{{ Score.PersonClaimCountRetracted }}</b><span>Retractions</span></div>
+</div>
+<p class="Muted">Counts assertions you confirmed; an outcome counts once you confirmed its verdict too. {{ Score.PersonClaimCountDistinct }} distinct claims; {{ Score.PersonClaimCountRepeated }} repeats, {{ Score.PersonClaimCountRevised }} revisions, {{ Score.PersonClaimCountVindication }} claimed vindications.</p>
+{% else %}
+<p class="Empty">No confirmed predictions yet. An assertion counts here once you have confirmed it, and its outcome once you have confirmed the verdict.</p>
+{% endif %}
+{% if Provisional and Provisional.Total %}
+<p class="Notice">Provisional, including {{ Provisional.Proposed }} AI-proposed verdict{{ '' if Provisional.Proposed == 1 else 's' }} nobody has reviewed: {{ Provisional.Scored }} scored, {{ Provisional.Correct }} correct, {{ Provisional.Partial }} partly correct, {{ Provisional.Incorrect }} incorrect{% if Provisional.ScoreAverage is not none %}, average score {{ '%+.1f' | format(Provisional.ScoreAverage) }}{% endif %}.
+    {% if Provisional.Proposed %}<a href="/Manage/Assessments?AssessmentStatus=601&AssessmentIsCurrent=1">Review proposed verdicts</a>{% endif %}</p>
+{% endif %}
+
+{% if Verdict %}
+<h2>Verdict <a class="Small" href="/Reports/View/{{ Verdict[0].ReportID }}">full report</a></h2>
+<table>
+    <thead><tr><th>Quality</th><th class="Num">Score</th><th class="Num">Based on</th><th>Why</th></tr></thead>
+    <tbody>
+    {% for Row in Verdict %}
+    <tr><td>{{ Row.DimensionLabel }}</td><td class="Num">{{ ScoreCell(Row.ReportDimensionScore) }}</td><td class="Num">{{ Row.ReportDimensionClaimCount }}</td><td>{{ Row.ReportDimensionRationale }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+<div class="Heading">
+    <h2>Channels</h2>
+    <a class="Button" href="/Intake">Add a channel</a>
+</div>
+{% if Channels %}
+<div class="TableWrap">
+<table>
+    <thead><tr><th>Channel</th><th>Platform</th><th class="Num">Followers</th><th class="Num">Stored sources</th><th>Completely covered</th><th>Last import</th><th></th></tr></thead>
+    <tbody>
+    {% for Row in Channels %}
+    <tr>
+        <td><a href="/Manage/Channels/Edit/{{ Row.ChannelID }}">{{ Row.ChannelLabel }}</a>{% if Row.ChannelURL %} <a class="Small" href="{{ Row.ChannelURL }}" target="_blank" rel="noopener noreferrer">open</a>{% endif %}</td>
+        <td>{{ Row.PlatformLabel }}</td>
+        <td class="Num">{{ Row.ChannelFollowerCount | Text('Number') if Row.ChannelFollowerCount else '' }}</td>
+        <td class="Num"><a href="/Manage/Sources?SourceChannel={{ Row.ChannelID }}">{{ Row.SourceCountStored | Text('Number') }}</a></td>
+        <td>{% if Row.ChannelCoverageDateStart %}{{ Row.ChannelCoverageDateStart }} to {{ Row.ChannelCoverageDateEnd }}{% else %}<span class="Muted">not yet</span>{% endif %}</td>
+        <td>{{ Row.ChannelDateSynced | Text }}</td>
+        <td class="RowActions">
+            {% if Row.SourceCountReady %}
+            <form method="post" action="/Channels/ClaimExtract/{{ Row.ChannelID }}"><button type="submit"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Extract claims from {{ Row.SourceCountReady }}</button></form>
+            {% endif %}
+        </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}<p class="Empty">No channels yet.</p>{% endif %}
+
+<div class="Heading">
+    <h2>Assertions</h2>
+    <div>
+        {% if WaitingCount %}
+        <form class="InlineForm" method="post" action="/Persons/Assess/{{ Person.PersonID }}"
+              onsubmit="return confirm('Search the web for evidence and propose verdicts for {{ [WaitingCount, AssessBatchCountMax] | min }} assertions? Each one uses model calls and web searches, which are billed.');">
+            <button type="submit"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Propose verdicts for {{ [WaitingCount, AssessBatchCountMax] | min }}{% if WaitingCount > AssessBatchCountMax %} of {{ WaitingCount }}{% endif %}</button>
+        </form>
+        {% endif %}
+        <a class="Button" href="/Manage/SourceClaims?SourceClaimPerson={{ Person.PersonID }}">All {{ ClaimCount }}</a>
+    </div>
+</div>
+{% if Claims %}
+<div class="TableWrap">
+<table>
+    <thead><tr><th>Published</th><th>Assertion</th><th>Source</th><th>Kind</th><th>Due by</th><th>Outcome</th><th class="Num">Score</th><th>Review</th></tr></thead>
+    <tbody>
+    {% for Row in Claims %}
+    <tr>
+        <td>{{ Row.SourceDatePublished.strftime('%Y-%m-%d') if Row.SourceDatePublished else '' }}</td>
+        <td class="Wide"><a href="/SourceClaims/View/{{ Row.SourceClaimID }}">{{ Row.SourceClaimLabel[:150] }}</a></td>
+        <td><a href="/Sources/View/{{ Row.SourceID }}">{{ (Row.SourceLabel or '')[:50] }}</a></td>
+        <td>{{ Row.SourceClaimTypeLabel or '' }}</td>
+        <td>{{ Row.SourceClaimDueDateMax or '' }}</td>
+        <td>{{ Row.ClaimOutcomeLabel or 'Unassessed' }}{% if Row.AssessmentStatus == 601 %} <span class="Badge Warn">Proposed</span>{% endif %}</td>
+        <td class="Num">{{ ScoreCell(Row.AssessmentScore) }}</td>
+        <td>{{ Row.SourceClaimStatusLabel or '' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% else %}<p class="Empty">No assertions recorded yet. Import a channel, then extract claims from its sources.</p>{% endif %}
+
+<div class="Heading">
+    <h2>Reports</h2>
+    <div>
+        <form class="InlineForm" method="post" action="/Reports/Create">
+            <input type="hidden" name="Type" value="1201"><input type="hidden" name="Person" value="{{ Person.PersonID }}">
+            <button class="Primary" type="submit"{% if not AnalysisStatus[0] or not ClaimCount %} disabled title="{{ AnalysisStatus[1] or 'There are no assertions to judge yet.' }}"{% endif %}>Write a verdict</button>
+        </form>
+        <a class="Button" href="/Reports/Create?Person={{ Person.PersonID }}">Custom report</a>
+    </div>
+</div>
+{% if not AnalysisStatus[0] %}<p class="Muted">{{ AnalysisStatus[1] }}</p>{% endif %}
+{% if Reports %}
+<table>
+    <thead><tr><th>Report</th><th>Kind</th><th>Status</th><th class="Num">Assertions</th><th>Written</th></tr></thead>
+    <tbody>
+    {% for Row in Reports %}
+    <tr><td><a href="/Reports/View/{{ Row.ReportID }}">{{ Row.ReportLabel }}</a>{% if Row.ReportIsCurrent %} <span class="Badge Good">Current</span>{% endif %}</td>
+        <td>{{ Row.TypeLabel }}</td><td>{{ Row.StatusLabel }}</td><td class="Num">{{ Row.ReportClaimCount }}</td><td>{{ Row.ReportDateCreated | Text }}</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}<p class="Empty">No reports written yet.</p>{% endif %}
+{% endblock %}

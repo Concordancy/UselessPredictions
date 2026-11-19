@@ -62,7 +62,10 @@
         <td>{{ Row.ChannelDateSynced | Text }}</td>
         <td class="RowActions">
             {% if Row.SourceCountReady %}
-            <form method="post" action="/Channels/ClaimExtract/{{ Row.ChannelID }}"><button type="submit"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Extract claims from {{ Row.SourceCountReady }}</button></form>
+            <form class="Inline" method="post" action="/Channels/ClaimExtract/{{ Row.ChannelID }}">
+                <input type="date" name="DateStart" aria-label="Published from" title="Published from (optional)">
+                <input type="date" name="DateEnd" aria-label="Published to" title="Published to (optional)">
+                <button type="submit"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Extract claims from {{ Row.SourceCountReady }}</button></form>
             {% endif %}
         </td>
     </tr>

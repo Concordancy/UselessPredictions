@@ -24,6 +24,10 @@ EffortReport = os.environ.get('UPEffortReport', 'high')
 AssessSearchCountMax = int(os.environ.get('UPAssessSearchCountMax', '8'))
 AssessBatchCountMax = int(os.environ.get('UPAssessBatchCountMax', '25'))
 
+# How many sources / assertions a batch job works on at the same time.
+ExtractWorkerCount = int(os.environ.get('UPExtractWorkerCount', '4'))
+AssessWorkerCount = int(os.environ.get('UPAssessWorkerCount', '3'))
+
 # Fixed User IDs (see Database/Seed.sql).
 UserSystem = 0
 UserAdministrator = 1

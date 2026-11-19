@@ -11,6 +11,7 @@ import json
 import re
 import threading
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 
 import anthropic
@@ -69,7 +70,7 @@ def ModelMessageGet(Model: str, System: str, Prompt: str, Effort: str, Schema: d
         OutputConfig['format'] = {'type': 'json_schema', 'schema': Schema}
     Messages = [{'role': 'user', 'content': Prompt}]
     try:
-        Client = anthropic.Anthropic(api_key=Config.AnthropicKeyGet())
+        Client = anthropic.Anthropic(api_key=Config.AnthropicKeyGet(), max_retries=5)
         for _ in range(ContinuationCountMax + 1):
             # Streamed because answers can be long. If the model declines on policy grounds, the API
             # retries the same request on its default fallback model inside the same call.
@@ -263,48 +264,78 @@ def SourceClaimExtractRun(SourceID: int) -> int:
     return SourceClaimExtractSave(SourceID, Result, Model)
 
 
-def ChannelClaimExtractCreate(ChannelID: int, UserCreator: int = Config.UserAdministrator) -> int:
-    """Starts a background Job that extracts claims from every source of the channel that has text
-    but has not been analysed yet. Returns the JobID."""
+def JobBatchRun(JobID: int, Items: list, Work, Noun: str, Workers: int, Tail: str = ''):
+    """Runs Work(item) for every item on a few threads and keeps the Job row up to date.
+    Work returns a count (claims found, verdicts written) that is totalled in the job message."""
+    Database.RowEdit('Jobs', 'JobID', JobID, {'JobStatus': 902, 'JobDateStart': datetime.utcnow()})
+    Before = UsageGet()
+    Done = Count = Problems = 0
+    Message = ''
+    Stop = threading.Event()
+
+    def Guarded(Item):
+        if Stop.is_set():
+            return None
+        return Work(Item)
+
+    with ThreadPoolExecutor(max_workers=max(1, Workers), thread_name_prefix=f'Job{JobID}') as Pool:
+        Futures = [Pool.submit(Guarded, Item) for Item in Items]        # submitted oldest first
+        for Future in as_completed(Futures):
+            try:
+                Result = Future.result()
+                if Result is None:
+                    continue
+                Count += Result
+                Done += 1
+            except AnalysisError as Error:
+                Problems += 1
+                Message = str(Error)
+                if Problems >= 3 and Done == 0:
+                    Stop.set()          # nothing works (key, quota): stop instead of failing on every item
+            except Exception as Error:
+                traceback.print_exc()
+                Problems += 1
+                Message = f'Unexpected error: {Error!r}'
+            Database.RowEdit('Jobs', 'JobID', JobID, {'JobItemCountAdded': Done, 'JobMessage': f'{Done} of {len(Items)} {Noun} done ...'})
+    After = UsageGet()
+    Tokens = (After['InputTokens'] - Before['InputTokens']) + (After['OutputTokens'] - Before['OutputTokens'])
+    Database.RowEdit('Jobs', 'JobID', JobID, {
+        'JobStatus': 903 if not Problems else (904 if Done else 905), 'JobItemCountAdded': Done, 'JobQuotaUsed': min(Tokens, 2147483647),
+        'JobDateEnd': datetime.utcnow(),
+        'JobMessage': (f'{Done} of {len(Items)} {Noun} done. ' + Tail.format(Count=Count)
+                       + f" Used about {(After['InputTokens'] - Before['InputTokens']):,} input and {(After['OutputTokens'] - Before['OutputTokens']):,} output tokens"
+                       + (f", {After['Searches'] - Before['Searches']} web searches" if After['Searches'] > Before['Searches'] else '') + '.'
+                       + (f' {Problems} failed; last problem: {Message}' if Problems else ''))[:4000]})
+
+
+def ChannelClaimExtractCreate(ChannelID: int, DateStart: str = '', DateEnd: str = '', UserCreator: int = Config.UserAdministrator) -> int:
+    """Starts a background Job that extracts claims from the sources of the channel that have text
+    but have not been analysed yet, optionally only those published in a period (YYYY-MM-DD).
+    Returns the JobID."""
     Usable, Note = StatusGet()
     if not Usable:
         raise AnalysisError(Note)
+    Where, Values = '', []
+    if DateStart:
+        Where += ' AND SourceDatePublished >= ?'
+        Values.append(DateStart)
+    if DateEnd:
+        Where += ' AND SourceDatePublished < DATEADD(DAY, 1, CAST(? AS DATE))'
+        Values.append(DateEnd)
     Sources = [Row['SourceID'] for Row in Database.RowListLoad(
-        'SELECT SourceID FROM dbo.Sources WHERE SourceChannel = ? AND SourceStatus = 302 ORDER BY SourceDatePublished', ChannelID)]
+        f'SELECT SourceID FROM dbo.Sources WHERE SourceChannel = ? AND SourceStatus = 302{Where} ORDER BY SourceDatePublished', ChannelID, *Values)]
     if not Sources:
-        raise AnalysisError('No sources of this channel are waiting for claim extraction (they need stored text first).')
+        raise AnalysisError('No sources of this channel are waiting for claim extraction in that period (they need stored text first).')
     Channel = Database.RowLoad('SELECT ChannelLabel, ChannelPerson, ChannelPlatform FROM dbo.Channels WHERE ChannelID = ?', ChannelID)
+    Period = f" ({DateStart or 'start'} to {DateEnd or 'now'})" if (DateStart or DateEnd) else ''
     JobID = Database.RowAdd('Jobs', 'JobID', {
-        'JobType': 904, 'JobStatus': 901, 'JobLabel': f"Extract claims: {Channel['ChannelLabel']}"[:320], 'JobChannel': ChannelID,
+        'JobType': 904, 'JobStatus': 901, 'JobLabel': f"Extract claims: {Channel['ChannelLabel']}{Period}"[:320], 'JobChannel': ChannelID,
         'JobPerson': Channel['ChannelPerson'], 'JobPlatform': Channel['ChannelPlatform'], 'JobItemCountFound': len(Sources),
         'JobUserCreator': UserCreator})
-    threading.Thread(target=ChannelClaimExtractRun, args=(JobID, Sources), daemon=True, name=f'Job{JobID}').start()
+    # Oldest first, so that later sources can refer back to earlier assertions.
+    threading.Thread(target=JobBatchRun, args=(JobID, Sources, SourceClaimExtractRun, 'sources', Config.ExtractWorkerCount,
+                                               '{Count} claims recorded; they await review.'), daemon=True, name=f'Job{JobID}').start()
     return JobID
-
-
-def ChannelClaimExtractRun(JobID: int, Sources: list):
-    Done = Claims = Problems = 0
-    Database.RowEdit('Jobs', 'JobID', JobID, {'JobStatus': 902, 'JobDateStart': datetime.utcnow()})
-    Message = ''
-    for SourceID in Sources:        # oldest first, so later sources can refer back to earlier assertions
-        try:
-            Claims += SourceClaimExtractRun(SourceID)
-            Done += 1
-        except AnalysisError as Error:
-            Problems += 1
-            Message = str(Error)
-            if Problems >= 3 and Done == 0:
-                break               # nothing works (key, quota): stop instead of failing on every source
-        except Exception as Error:
-            traceback.print_exc()
-            Problems += 1
-            Message = f'Unexpected error: {Error!r}'
-        Database.RowEdit('Jobs', 'JobID', JobID, {'JobItemCountAdded': Done, 'JobMessage': f'{Done} of {len(Sources)} sources analysed, {Claims} claims recorded.'})
-    Status = 903 if not Problems else (904 if Done else 905)
-    Database.RowEdit('Jobs', 'JobID', JobID, {
-        'JobStatus': Status, 'JobItemCountAdded': Done, 'JobDateEnd': datetime.utcnow(),
-        'JobMessage': (f'{Done} of {len(Sources)} sources analysed, {Claims} claims recorded.'
-                       + (f' {Problems} failed; last problem: {Message}' if Problems else ''))[:4000]})
 
 
 def IdSetLoad(Sql: str) -> set:

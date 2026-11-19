@@ -17,7 +17,8 @@ from datetime import date, datetime
 from urllib.parse import urlsplit
 
 from . import Config, Database
-from .Analysis import AnalysisError, StatusGet, ModelMessageGet, MessageTextGet, ModelRequest, LookupTextGet, IdSetLoad, DateTextParse
+from .Analysis import (AnalysisError, StatusGet, ModelMessageGet, MessageTextGet, ModelRequest, LookupTextGet, IdSetLoad, DateTextParse,
+                       JobBatchRun)
 
 # Fixed lookup IDs (see Database/Seed.sql).
 AssessmentTypeAI = 601
@@ -271,30 +272,7 @@ def PersonAssessCreate(PersonID: int, UserCreator: int = Config.UserAdministrato
         'JobType': 907, 'JobStatus': 901, 'JobLabel': f'Propose verdicts: {Label}'[:320], 'JobPerson': PersonID,
         'JobItemCountFound': len(Batch), 'JobUserCreator': UserCreator,
         'JobMessage': f'{len(Waiting) - len(Batch)} more are waiting for a later run.' if len(Waiting) > len(Batch) else ''})
-    threading.Thread(target=PersonAssessRun, args=(JobID, Batch, len(Waiting) - len(Batch)), daemon=True, name=f'Job{JobID}').start()
+    Tail = 'The proposed verdicts await your review.' + (f' {len(Waiting) - len(Batch)} more assertions are waiting for a later run.' if len(Waiting) > len(Batch) else '')
+    threading.Thread(target=JobBatchRun, args=(JobID, Batch, lambda SourceClaimID: 1 if SourceClaimAssessRun(SourceClaimID) else 0, 'verdicts',
+                                               Config.AssessWorkerCount, Tail), daemon=True, name=f'Job{JobID}').start()
     return JobID
-
-
-def PersonAssessRun(JobID: int, SourceClaims: list, Remaining: int):
-    Done = Problems = 0
-    Message = ''
-    Database.RowEdit('Jobs', 'JobID', JobID, {'JobStatus': 902, 'JobDateStart': datetime.utcnow()})
-    for SourceClaimID in SourceClaims:
-        try:
-            SourceClaimAssessRun(SourceClaimID)
-            Done += 1
-        except AnalysisError as Error:
-            Problems += 1
-            Message = str(Error)
-            if Problems >= 3 and Done == 0:
-                break               # nothing works (key, quota): stop instead of failing on every one
-        except Exception as Error:
-            traceback.print_exc()
-            Problems += 1
-            Message = f'Unexpected error: {Error!r}'
-        Database.RowEdit('Jobs', 'JobID', JobID, {'JobItemCountAdded': Done, 'JobMessage': f'{Done} of {len(SourceClaims)} verdicts proposed.'})
-    Database.RowEdit('Jobs', 'JobID', JobID, {
-        'JobStatus': 903 if not Problems else (904 if Done else 905), 'JobItemCountAdded': Done, 'JobDateEnd': datetime.utcnow(),
-        'JobMessage': (f'{Done} of {len(SourceClaims)} verdicts proposed; they await your review.'
-                       + (f' {Remaining} more assertions are waiting for a later run.' if Remaining else '')
-                       + (f' {Problems} failed; last problem: {Message}' if Problems else ''))[:4000]})

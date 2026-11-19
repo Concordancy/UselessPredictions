@@ -512,13 +512,17 @@ def SourceClaimExtract(ID: int):
 
 
 @App.post('/Channels/ClaimExtract/{ID}')
-def ChannelClaimExtract(ID: int):
-    Person = Database.ValueLoad('SELECT ChannelPerson FROM dbo.Channels WHERE ChannelID = ?', ID) or 0
-    try:
-        JobID = Analysis.ChannelClaimExtractCreate(ID)
-    except Analysis.AnalysisError as Problem:
-        return RedirectResponse(f'/Persons/View/{Person}?{urlencode({"Notice": str(Problem)})}', status_code=303)
-    return RedirectResponse(f'/Jobs/View/{JobID}', status_code=303)
+async def ChannelClaimExtract(request: Request, ID: int):
+    Form = await request.form()
+
+    def Work():
+        Person = Database.ValueLoad('SELECT ChannelPerson FROM dbo.Channels WHERE ChannelID = ?', ID) or 0
+        try:
+            return f"/Jobs/View/{Analysis.ChannelClaimExtractCreate(ID, Form.get('DateStart') or '', Form.get('DateEnd') or '')}"
+        except Analysis.AnalysisError as Problem:
+            return f'/Persons/View/{Person}?{urlencode({"Notice": str(Problem)})}'
+
+    return RedirectResponse(await run_in_threadpool(Work), status_code=303)
 
 
 @App.get('/Reports/Create', response_class=HTMLResponse)

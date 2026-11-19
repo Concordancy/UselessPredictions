@@ -69,12 +69,12 @@ One might say that deleting a file one is  (also) being clearing it from a Direc
 8. Tables that serve to connect two Object Classes (such as SystemUsers or UserRights) should have fields starting with the singular names for a Class (e.g. SystemUserID) UNLESS they would exceed (or are likely to exceed) 25-30 characters in length. For example, the table WritingSystemCharacters would end up containing Column names such as WritingSystemCharacterWritingSystem (to store the ID of a record in WritingSystems) and WritingSystemCharacterCharacter (for the record id from the table Characters) - in such case you MUST use abbreviations using the first letter only, or, in *exceptional* cases, the first letter of each Term used in the name - for instance, for WritingSystemCharacter the field prefix is "WSC", whereas in the table TemplateParameters the prefix is "TP". (**REQUIRED**)
 9. Whenever possible, attempt to use UNIQUE Column names. This may require avoiding the use of First-Letter column names when another table already uses those. For example, the tables UserRights and UserRoles both could use "UR" as the prefix - however, given that it is especially likely certain views/functions will involve loading data from both of these, it is highly recommended to avoid using such "UR" prefix for both. (**RECOMMENDED**)
 10. If an Object Class has a start and end date, ALWAYS use fields that end on **DateStart** and **DateEnd**. (**STRICT**)
-11. When a Table contains multiple columns referring to the same data, ALWAYS first use the data type, and then its function. For example, if we have a field for Min and Max value, DO NOT use FieldMaxValue and FieldMinValue but **FieldValueMax** and **FieldValueMin**. (STRICT)
+11. When a Table contains multiple columns referring to the same data, ALWAYS first use the data type, and then its function. For example, if we have a field for Min and Max value, DO NOT use FieldMaxValue and FieldMinValue but **FieldValueMax** and **FieldValueMin**. (**STRICT**)
 12. NEVER use underscores, spaces, dashes or periods in Table Names OR Column names. (**STRICT**)
 
 ## Database Table Columns Order
 
-Not all Object Classes have all of these. Quite a few classes do not use Categories and/or do not need or support a Profile. Many do not support hierarchies (and so lack the Master column) - that's fine. Regardless, all Tables should ideally have these fields in the order as shown here (**REQUIRED**):
+Not all Object Classes have all of these. Quite a few classes do not use Categories and/or do not need or support a Profile. Many do not support hierarchies (and so lack the Master column) - that's fine. Regardless, for all Tables, the ORDER of these crucial field  should ideally be as shown here (**REQUIRED**):
 
 | Table Field | Data Type     | Order/Priority |
 | ----------- | ------------- | -------------- |
@@ -88,9 +88,10 @@ Not all Object Classes have all of these. Quite a few classes do not use Categor
 | Profile     | INT           | 8              |
 | UserCreator | INT           | 9              |
 | UserOwner   | INT           | 10             |
+
 ## Database Rules & Conventions 
 
-1. Carefully consider whether a relationship between two Object Classes is likely to become one-to-many or is almost certain to remain one-to-one. If there exists a reasonable possibility a one-to-many relationship is possible (or something that is likely to be added in a future release) ALWAYS create an additional table to make this part of the design from the start - even if such usage will not yet be offered initially (REQUIRED)
+1. Carefully consider whether a relationship between two Object Classes is likely to become one-to-many or is almost certain to remain one-to-one. If there exists a reasonable possibility a one-to-many relationship is possible (or something that is likely to be added in a future release) ALWAYS create an additional table to make this part of the design from the start - even if such usage will not yet be offered initially (**REQUIRED**)
 2. **AVOID NULL** values whenever possible. Generally, they are ONLY permitted for Start & End Dates, or for Object Parameter values in cases where a value of "0" is a valid value for a given Parameter. (**STRICT**)
 3. Tables containing records for which the value is not required, the Unique record ID seed **MUST** be "0". For example, most Objects can have ObjectType = 0. Therefore, to ensure future foreign key consistency, the table dbo.Types contains a Record with TypeID = 0. (**STRICT**)
 4. Nevertheless, when doing joins between tables, LEFT OUTER joins should be used unless a missing record in the additional table would indicate an invalid record. During development, many foreign keys will not yet be implemented, and we should have the freedom to delete records (Types, Categories, etc.) at will without key-dictated restrictions (**REQUIRED**)

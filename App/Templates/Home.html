@@ -8,7 +8,7 @@
     <a class="Tile" href="/Manage/Sources"><b>{{ Counts.Sources | Text('Number') }}</b><span>Sources</span></a>
     <a class="Tile" href="/SourceClaims"><b>{{ Counts.SourceClaims | Text('Number') }}</b><span>Assertions</span></a>
     <a class="Tile" href="/SourceClaims?Status=501"><b>{{ Counts.SourceClaimsUnreviewed | Text('Number') }}</b><span>Awaiting review</span></a>
-    <a class="Tile" href="/Manage/Claims"><b>{{ Counts.Claims | Text('Number') }}</b><span>Canonical claims</span></a>
+    <a class="Tile" href="/Claims"><b>{{ Counts.Claims | Text('Number') }}</b><span>Distinct claims</span></a>
     <a class="Tile" href="/Manage/Assessments?AssessmentIsCurrent=1"><b>{{ Counts.Assessments | Text('Number') }}</b><span>Verdicts</span></a>
     <a class="Tile" href="/Manage/Reports"><b>{{ Counts.Reports }}</b><span>Reports</span></a>
 </div>

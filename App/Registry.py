@@ -46,7 +46,7 @@ TableGroupList = [
         ('Categories', ['CategoryLabel', 'CategoryMaster']),
     ]),
     ('System', [
-        ('Jobs', ['JobLabel', 'JobType', 'JobStatus', 'JobChannel', 'JobItemCountFound', 'JobItemCountAdded', 'JobDateCreated']),
+        ('Jobs', ['JobLabel', 'JobPerson', 'JobType', 'JobStatus', 'JobChannel', 'JobItemCountFound', 'JobItemCountAdded', 'JobDateCreated']),
         ('Types', ['TypeClass', 'TypeLabel', 'TypeDescription']),
         ('Statuses', ['StatusClass', 'StatusLabel', 'StatusDescription']),
         ('Users', ['UserLabel', 'UserType', 'UserStatus']),
@@ -96,6 +96,50 @@ ReferenceMap = {
     'ReportDimensionScore': ('Scores', None),
     'RSCReport': ('Reports', None), 'RSCSourceClaim': ('SourceClaims', None),
     'ReportSourceReport': ('Reports', None), 'ReportSourceSource': ('Sources', None),
+}
+
+# Tables whose rows belong to a person only indirectly (through an assertion, a claim or a channel).
+# For these the list pages show a "Person" column and offer a filter on it.
+# Table -> (SQL giving the person name(s) for row alias x, SQL condition with one ? for a PersonID).
+def PersonViaAssertionSqlGet(Expression: str) -> tuple:
+    return (f'(SELECT p.PersonLabel FROM dbo.SourceClaims sc LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson '
+            f'WHERE sc.SourceClaimID = {Expression} AND sc.SourceClaimID > 0)',
+            f'EXISTS (SELECT 1 FROM dbo.SourceClaims sc WHERE sc.SourceClaimID = {Expression} AND sc.SourceClaimPerson = ?)')
+
+
+def PersonAggregateSqlGet(From: str) -> str:
+    """Comma-separated distinct person names; From must expose the alias p for dbo.Persons."""
+    return f"(SELECT STRING_AGG(d.PersonLabel, N', ') WITHIN GROUP (ORDER BY d.PersonLabel) FROM (SELECT DISTINCT p.PersonLabel {From} AND p.PersonID > 0) d)"
+
+
+PersonSqlMap = {
+    'Assessments': PersonViaAssertionSqlGet('x.AssessmentSourceClaim'),
+    'SourceClaimClaimTypes': PersonViaAssertionSqlGet('x.SCCTSourceClaim'),
+    'SourceClaimRelations': PersonViaAssertionSqlGet('x.SCRSourceClaim'),
+    'ReportSourceClaims': PersonViaAssertionSqlGet('x.RSCSourceClaim'),
+    'Claims': (
+        PersonAggregateSqlGet('FROM dbo.SourceClaims sc LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson '
+                              'WHERE sc.SourceClaimClaim = x.ClaimID AND sc.SourceClaimStatus <> 503'),
+        'EXISTS (SELECT 1 FROM dbo.SourceClaims sc WHERE sc.SourceClaimClaim = x.ClaimID AND sc.SourceClaimPerson = ?)'),
+    'Citations': (
+        PersonAggregateSqlGet('FROM dbo.ClaimCitations cc LEFT OUTER JOIN dbo.SourceClaims sc ON sc.SourceClaimID = cc.ClaimCitationSourceClaim '
+                              'LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson WHERE cc.ClaimCitationCitation = x.CitationID'),
+        'EXISTS (SELECT 1 FROM dbo.ClaimCitations cc LEFT OUTER JOIN dbo.SourceClaims sc ON sc.SourceClaimID = cc.ClaimCitationSourceClaim '
+        'WHERE cc.ClaimCitationCitation = x.CitationID AND sc.SourceClaimPerson = ?)'),
+    'ClaimCitations': (
+        PersonAggregateSqlGet('FROM dbo.SourceClaims sc LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson '
+                              'WHERE (sc.SourceClaimID = x.ClaimCitationSourceClaim OR (x.ClaimCitationSourceClaim = 0 AND x.ClaimCitationClaim > 0 '
+                              'AND sc.SourceClaimClaim = x.ClaimCitationClaim)) AND sc.SourceClaimID > 0'),
+        'EXISTS (SELECT 1 FROM dbo.SourceClaims sc WHERE (sc.SourceClaimID = x.ClaimCitationSourceClaim OR (x.ClaimCitationSourceClaim = 0 '
+        'AND x.ClaimCitationClaim > 0 AND sc.SourceClaimClaim = x.ClaimCitationClaim)) AND sc.SourceClaimID > 0 AND sc.SourceClaimPerson = ?)'),
+    'Sources': (
+        '(SELECT p.PersonLabel FROM dbo.Channels ch LEFT OUTER JOIN dbo.Persons p ON p.PersonID = ch.ChannelPerson WHERE ch.ChannelID = x.SourceChannel AND ch.ChannelID > 0)',
+        'EXISTS (SELECT 1 FROM dbo.Channels ch WHERE ch.ChannelID = x.SourceChannel AND ch.ChannelPerson = ?)'),
+    'SourceContents': (
+        '(SELECT p.PersonLabel FROM dbo.Sources s LEFT OUTER JOIN dbo.Channels ch ON ch.ChannelID = s.SourceChannel '
+        'LEFT OUTER JOIN dbo.Persons p ON p.PersonID = ch.ChannelPerson WHERE s.SourceID = x.SourceContentSource AND s.SourceID > 0)',
+        'EXISTS (SELECT 1 FROM dbo.Sources s LEFT OUTER JOIN dbo.Channels ch ON ch.ChannelID = s.SourceChannel '
+        'WHERE s.SourceID = x.SourceContentSource AND ch.ChannelPerson = ?)'),
 }
 
 # A reference shown as a dropdown up to this many rows; beyond that as an ID box with the label beside it.

@@ -17,11 +17,19 @@
         </select>
     </label>
     {% endfor %}
+    {% if PersonColumn %}
+    <label>Person
+        <select name="Person" onchange="this.form.submit()">
+            <option value="">Anyone</option>
+            {% for Row in PersonOptions %}<option value="{{ Row.PersonID }}"{% if Person == Row.PersonID %} selected{% endif %}>{{ Row.PersonLabel }}</option>{% endfor %}
+        </select>
+    </label>
+    {% endif %}
     {% for Name, Value in FilterHidden.items() %}
     <input type="hidden" name="{{ Name }}" value="{{ Value }}">
     {% endfor %}
     <button type="submit">Search</button>
-    {% if Search or Filters %}<a href="/Manage/{{ Info.Table }}">Clear filters</a>{% endif %}
+    {% if Search or Filters or Person %}<a href="/Manage/{{ Info.Table }}">Clear filters</a>{% endif %}
 </form>
 {% if FilterNotes %}
 <p class="Muted">Showing only: {% for FilterTitle, Label in FilterNotes %}<b>{{ FilterTitle }}</b> = {{ Label }}{% if not loop.last %}, {% endif %}{% endfor %}</p>
@@ -32,7 +40,7 @@
 <table>
     <thead><tr>
         <th class="Num">ID</th>
-        {% for Column in Columns %}<th{% if Column.Kind in ('Number', 'Decimal') %} class="Num"{% endif %}>{{ Titles[Column.Name] }}</th>{% endfor %}
+        {% for Column in Columns %}<th{% if Column.Kind in ('Number', 'Decimal') %} class="Num"{% endif %}>{{ Titles[Column.Name] }}</th>{% if loop.first and PersonColumn %}<th>Person</th>{% endif %}{% endfor %}
         <th></th>
     </tr></thead>
     <tbody>
@@ -53,6 +61,7 @@
         {% else %}
         <td{% if Column.Kind in ('Number', 'Decimal') %} class="Num"{% endif %}>{{ (Value | Text(Column.Kind))[:110] }}</td>
         {% endif %}
+        {% if loop.first and PersonColumn %}<td>{{ Row.PersonText or '' }}</td>{% endif %}
         {% endfor %}
         <td class="RowActions"><a href="/Manage/{{ Info.Table }}/Edit/{{ ID }}">Edit</a></td>
     </tr>
@@ -69,6 +78,6 @@
     {% endif %}
 </div>
 {% else %}
-<p class="Empty">{% if Search or Filters %}Nothing matches these filters.{% else %}No {{ Title | lower }} recorded yet.{% endif %}</p>
+<p class="Empty">{% if Search or Filters or Person %}Nothing matches these filters.{% else %}No {{ Title | lower }} recorded yet.{% endif %}</p>
 {% endif %}
 {% endblock %}

@@ -1,0 +1,91 @@
+{% extends "Layout.html" %}
+{% macro Options(List, Current, ZeroLabel='Unspecified') %}{% for ID, Label in List %}<option value="{{ ID }}"{% if ID == Current %} selected{% endif %}>{{ Label if ID else ZeroLabel }}</option>{% endfor %}{% endmacro %}
+{% block Content %}
+<p class="Crumbs"><a href="/Claims">Claims</a> / #{{ Claim.ClaimID }}</p>
+<div class="Heading">
+    <h1>{{ Claim.ClaimLabel }}</h1>
+    <a class="Button" href="/Manage/Claims/Edit/{{ Claim.ClaimID }}">All fields</a>
+</div>
+{% if Notice %}<p class="Alert Good">{{ Notice }}</p>{% endif %}
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+
+{% if Claim.ClaimMaster %}
+<div class="Review">
+    <span class="Badge">Merged</span>
+    <span>into <a href="/Claims/View/{{ Claim.ClaimMaster }}">{{ Claim.MasterLabel }}</a>; the two count as one claim.</span>
+    <form class="InlineForm" method="post" action="/Claims/Unmerge/{{ Claim.ClaimID }}"><button type="submit">Unmerge</button></form>
+</div>
+{% endif %}
+
+<p class="Muted">Claimed by:
+    {% for Row in Claimants %}<a href="/Persons/View/{{ Row.PersonID }}">{{ Row.PersonLabel }}</a> ({{ Row.AssertionCount }}){% if not loop.last %}, {% endif %}{% else %}nobody yet{% endfor %}
+    · <a href="/SourceClaims?Claim={{ Claim.ClaimID }}">{{ AssertionCount }} assertion{{ '' if AssertionCount == 1 else 's' }}</a>{% if Children %}, including those of the {{ Children | length }} merged claim{{ '' if Children | length == 1 else 's' }}{% endif %}</p>
+
+<form class="Record" method="post" action="/Claims/Save/{{ Claim.ClaimID }}">
+    <div class="Field"><label for="ClaimLabel">Claim</label><input id="ClaimLabel" name="ClaimLabel" type="text" maxlength="320" value="{{ Claim.ClaimLabel }}" required></div>
+    <div class="Field Long"><label for="ClaimStatement">Precisely</label><textarea id="ClaimStatement" name="ClaimStatement" rows="2" maxlength="2000">{{ Claim.ClaimStatement }}</textarea></div>
+    <div class="Field Long"><label for="ClaimCriteria">Settled by</label><textarea id="ClaimCriteria" name="ClaimCriteria" rows="3" maxlength="4000">{{ Claim.ClaimCriteria }}</textarea></div>
+    <div class="Field"><label for="ClaimType">Type</label><select id="ClaimType" name="ClaimType">{{ Options(TypeOptions, Claim.ClaimType) }}</select></div>
+    <div class="Field"><label for="ClaimValence">Valence</label><select id="ClaimValence" name="ClaimValence">{{ Options(ValenceOptions, Claim.ClaimValence) }}</select></div>
+    <div class="Field"><label for="ClaimStatus">Status</label><select id="ClaimStatus" name="ClaimStatus">{{ Options(StatusOptions, Claim.ClaimStatus, 'Not set') }}</select></div>
+    <div class="Field"><label for="ClaimCategory">Subject</label><select id="ClaimCategory" name="ClaimCategory">{{ Options(CategoryOptions, Claim.ClaimCategory, 'Not set') }}</select></div>
+    <div class="Actions"><button class="Primary" type="submit">Save changes</button></div>
+</form>
+
+{% if Children %}
+<h2>Merged claims</h2>
+<p class="Muted">These count as one claim together with this master. Each keeps its own type, valence and status unless you set them all at once below.</p>
+<div class="TableWrap">
+<table>
+    <thead><tr><th>Claim</th><th class="Num">Assertions</th><th>Type</th><th>Valence</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for Row in Children %}
+    <tr>
+        <td class="Wide"><a href="/Claims/View/{{ Row.ClaimID }}">{{ Row.ClaimLabel }}</a></td>
+        <td class="Num"><a href="/SourceClaims?Claim={{ Row.ClaimID }}">{{ Row.AssertionCount }}</a></td>
+        <td{% if Row.ClaimType != Claim.ClaimType %} class="Differs" title="Differs from the master"{% endif %}>{{ Row.ClaimTypeLabel if Row.ClaimType else 'Unspecified' }}</td>
+        <td{% if Row.ClaimValence != Claim.ClaimValence %} class="Differs" title="Differs from the master"{% endif %}>{{ Row.ClaimValenceLabel if Row.ClaimValence else 'Unspecified' }}</td>
+        <td{% if Row.ClaimStatus != Claim.ClaimStatus %} class="Differs" title="Differs from the master"{% endif %}>{{ Row.StatusLabel or 'Not set' }}</td>
+        <td class="RowActions"><form method="post" action="/Claims/Unmerge/{{ Row.ClaimID }}"><input type="hidden" name="Return" value="{{ Claim.ClaimID }}"><button type="submit">Unmerge</button></form></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+<form class="Record" method="post" action="/Claims/ChildrenEdit/{{ Claim.ClaimID }}">
+    <p><b>Set for all {{ Children | length }} merged claim{{ '' if Children | length == 1 else 's' }}</b> <span class="Muted">Preselected: this master's own values. Choose "Leave as they are" for anything that should stay different.</span></p>
+    <div class="Field"><label for="ChildType">Type</label><select id="ChildType" name="ClaimType"><option value="">Leave as they are</option>{{ Options(TypeOptions, Claim.ClaimType) }}</select></div>
+    <div class="Field"><label for="ChildValence">Valence</label><select id="ChildValence" name="ClaimValence"><option value="">Leave as they are</option>{{ Options(ValenceOptions, Claim.ClaimValence) }}</select></div>
+    <div class="Field"><label for="ChildStatus">Status</label><select id="ChildStatus" name="ClaimStatus"><option value="">Leave as they are</option>{{ Options(StatusOptions, Claim.ClaimStatus, 'Not set') }}</select></div>
+    <div class="Actions"><button type="submit">Apply to all merged claims</button></div>
+</form>
+{% endif %}
+
+<div class="Heading">
+    <h2>Assertions of this claim</h2>
+    <a class="Button" href="/SourceClaims?Claim={{ Claim.ClaimID }}">Open in the assertions list</a>
+</div>
+{% if Assertions %}
+<div class="TableWrap">
+<table>
+    <thead><tr><th>Said</th><th>By</th><th>Assertion</th><th>Due by</th><th>Verdict</th><th>Review</th></tr></thead>
+    <tbody>
+    {% for Row in Assertions %}
+    <tr>
+        <td>{{ Row.SourceDatePublished.strftime('%Y-%m-%d') if Row.SourceDatePublished else '' }}</td>
+        <td>{% if Row.PersonID %}<a href="/Persons/View/{{ Row.PersonID }}">{{ Row.PersonLabel }}</a>{% endif %}</td>
+        <td class="Wide"><a href="/SourceClaims/View/{{ Row.SourceClaimID }}">{{ Row.SourceClaimLabel }}</a>
+            {% if Row.ClaimID != Claim.ClaimID %}<div class="Muted">recorded under: {{ Row.ClaimLabel }}</div>{% endif %}</td>
+        <td>{{ Row.SourceClaimDueDateMax or 'open-ended' }}</td>
+        <td>{% if Row.AssessmentID %}{{ Row.ClaimOutcomeLabel }}{% if Row.AssessmentScore is not none %} <span class="Score {{ 'Plus' if Row.AssessmentScore > 0 else ('Minus' if Row.AssessmentScore < 0 else '') }}">{{ '%+d' | format(Row.AssessmentScore) if Row.AssessmentScore else '0' }}</span>{% endif %}{% if Row.AssessmentStatus == 601 %} <span class="Badge Warn">Proposed</span>{% endif %}{% else %}<span class="Muted">none</span>{% endif %}</td>
+        <td>{{ Row.SourceClaimStatusLabel or '' }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+</div>
+{% if AssertionCount > Assertions | length %}<p class="Muted">Showing the first {{ Assertions | length }} of {{ AssertionCount }}.</p>{% endif %}
+{% else %}
+<p class="Empty">Nobody has been recorded asserting this claim.</p>
+{% endif %}
+{% endblock %}

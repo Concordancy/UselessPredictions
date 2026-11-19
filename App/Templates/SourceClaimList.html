@@ -1,15 +1,17 @@
 {% extends "Layout.html" %}
 {% block Content %}
 <div class="Heading">
-    <h1>Claims</h1>
-    <a class="Button" href="/Manage/SourceClaims/Create">Add a claim by hand</a>
+    <h1>Assertions</h1>
+    <a class="Button" href="/Manage/SourceClaims/Create">Add an assertion by hand</a>
 </div>
-<p class="Lead">Every assertion recorded from the imported sources. Tick the ones worth checking and run the analysis on just those; record a verdict yourself for the ones you already know.</p>
+<p class="Lead">Every time somebody asserted a claim in a source: who, when and in what words. Tick the ones worth checking and run the analysis on just those; record a verdict yourself for the ones you already know.</p>
+{% if Filter.Claim %}<p class="Notice">Showing only assertions of the claim <a href="/Claims/View/{{ Filter.Claim }}">{{ ClaimLabel }}</a> and of claims merged into it. <a href="/SourceClaims">Show all</a></p>{% endif %}
 {% if Notice %}<p class="Alert Good">{{ Notice }}</p>{% endif %}
 {% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
 
 <form class="Filters" method="get" action="/SourceClaims">
-    <label>Search <input type="search" name="Search" value="{{ Filter.Search }}" placeholder="Words in the claim or quote"></label>
+    {% if Filter.Claim %}<input type="hidden" name="Claim" value="{{ Filter.Claim }}">{% endif %}
+    <label>Search <input type="search" name="Search" value="{{ Filter.Search }}" placeholder="Words, or a person's name"></label>
     <label>Person
         <select name="Person" onchange="this.form.submit()">
             <option value="0">Everyone</option>
@@ -61,7 +63,7 @@
         <span class="BulkCount"><b id="PickedCount">0</b> ticked</span>
         <button class="Primary" type="submit" name="Action" value="Analyse" data-needs-pick data-confirm="analyse"{% if not AnalysisStatus[0] %} disabled title="{{ AnalysisStatus[1] }}"{% endif %}>Run analysis</button>
         <span class="BulkGroup">
-            <button type="submit" name="Action" value="Confirm" data-needs-pick title="The quote, the speaker and the deadline are right">Confirm claims</button>
+            <button type="submit" name="Action" value="Confirm" data-needs-pick title="The quote, the speaker and the deadline are right">Confirm</button>
             <button type="submit" name="Action" value="Reject" data-needs-pick title="Not a checkable claim, or recorded wrongly">Reject</button>
             <button type="submit" name="Action" value="VerdictConfirm" data-needs-pick title="Accept the verdict currently proposed for each ticked claim">Confirm their verdicts</button>
         </span>
@@ -79,17 +81,17 @@
     <div class="TableWrap">
     <table>
         <thead><tr>
-            <th class="Check"><input type="checkbox" id="PickAll" aria-label="Tick every claim on this page"></th>
-            <th>Said</th><th>Claim</th><th>By</th><th>Certainty</th><th>Due by</th><th>Verdict</th><th>Review</th>
+            <th class="Check"><input type="checkbox" id="PickAll" aria-label="Tick every assertion on this page"></th>
+            <th>Said</th><th>Assertion</th><th>By</th><th>Certainty</th><th>Due by</th><th>Verdict</th><th>Review</th>
         </tr></thead>
         <tbody>
         {% for Row in Rows %}
         <tr>
-            <td class="Check"><input type="checkbox" name="SourceClaims" value="{{ Row.SourceClaimID }}" aria-label="Tick claim {{ Row.SourceClaimID }}"></td>
+            <td class="Check"><input type="checkbox" name="SourceClaims" value="{{ Row.SourceClaimID }}" aria-label="Tick assertion {{ Row.SourceClaimID }}"></td>
             <td class="NoWrap">{{ Row.SourceDatePublished.strftime('%Y-%m-%d') if Row.SourceDatePublished else '' }}</td>
             <td class="Wide"><a href="/SourceClaims/View/{{ Row.SourceClaimID }}">{{ Row.SourceClaimLabel }}</a>{% if Row.SourceClaimType not in (501, 0) %} <span class="Badge">{{ Row.SourceClaimTypeLabel }}</span>{% endif %}
                 {% if Row.SourceClaimQuote and Row.SourceClaimQuote != Row.SourceClaimLabel %}<div class="Quote">"{{ Row.SourceClaimQuote[:260] }}{{ '...' if Row.SourceClaimQuote | length > 260 }}"</div>{% endif %}
-                <div class="Muted"><a href="/Sources/View/{{ Row.SourceID }}">{{ (Row.SourceLabel or '')[:70] }}</a>{% if Row.PlatformLabel %} · {{ Row.PlatformLabel }}{% endif %}{% if not Row.ClaimID %} · <span class="Badge Warn">no canonical claim</span>{% endif %}</div></td>
+                <div class="Muted"><a href="/Sources/View/{{ Row.SourceID }}">{{ (Row.SourceLabel or '')[:70] }}</a>{% if Row.PlatformLabel %} · {{ Row.PlatformLabel }}{% endif %}{% if Row.ClaimID %} · claim: <a href="/Claims/View/{{ Row.ClaimGroupID }}">{{ Row.ClaimGroupLabel[:80] }}</a>{% else %} · <span class="Badge Warn">not linked to a claim</span>{% endif %}</div></td>
             <td>{{ Row.PersonLabel or '' }}</td>
             <td>{{ Row.ClaimCertaintyLabel if Row.ClaimCertaintyLabel and Row.ClaimCertaintyLabel != 'Unspecified' else '' }}</td>
             <td class="NoWrap">{% if Row.SourceClaimDueDateMax %}{{ Row.SourceClaimDueDateMax }}{% if Row.SourceClaimDueDateMax >= Today %}<div class="Muted">still open</div>{% endif %}{% else %}<span class="Muted">open-ended</span>{% endif %}</td>
@@ -103,7 +105,7 @@
     </div>
 </form>
 <div class="Paging">
-    <span>{{ Total | Text('Number') }} claim{{ '' if Total == 1 else 's' }}</span>
+    <span>{{ Total | Text('Number') }} assertion{{ '' if Total == 1 else 's' }}</span>
     {% if PageCount > 1 %}
     {% if Page > 1 %}<a href="?{{ PagingQuery }}{{ '&' if PagingQuery }}Page={{ Page - 1 }}">Previous</a>{% endif %}
     <span>Page {{ Page }} of {{ PageCount }}</span>
@@ -141,6 +143,6 @@
 })();
 </script>
 {% else %}
-<p class="Empty">{% if IsFiltered %}No claims match these filters.{% else %}No claims recorded yet. Import a channel, then extract claims from its sources on the person's page.{% endif %}</p>
+<p class="Empty">{% if IsFiltered %}No assertions match these filters.{% else %}No assertions recorded yet. Import a channel, then extract claims from its sources on the person's page.{% endif %}</p>
 {% endif %}
 {% endblock %}

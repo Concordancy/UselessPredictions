@@ -11,13 +11,14 @@
 <aside class="Menu">
     <a class="MenuBrand" href="/">Useless Predictions</a>
     <nav>
-        <a class="MenuAction" href="/SourceClaims">Claims</a>
+        <a class="MenuAction" href="/Claims">Claims</a>
+        <a class="MenuAction" href="/SourceClaims">Assertions</a>
         <a class="MenuAction" href="/Intake">Add a channel</a>
         <a class="MenuAction" href="/Reports/Create">New report</a>
         {% for Group, Tables in Menu %}
         <div class="MenuGroup">{{ Group }}</div>
         {% for Table in Tables %}
-        <a href="/Manage/{{ Table }}"{% if Info is defined and Info.Table == Table %} class="MenuCurrent"{% endif %}>{{ Table | Words }}</a>
+        <a href="{{ ListRouteMap.get(Table, '/Manage/' ~ Table) }}"{% if Info is defined and Info.Table == Table %} class="MenuCurrent"{% endif %}>{{ Table | Words }}</a>
         {% endfor %}
         {% endfor %}
     </nav>

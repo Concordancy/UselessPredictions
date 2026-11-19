@@ -1,0 +1,189 @@
+{% extends "Layout.html" %}
+{% block Content %}
+<div class="Heading">
+    <h1>Claims</h1>
+    <a class="Button" href="/Manage/Claims/Create">Add a claim by hand</a>
+</div>
+<p class="Lead">Each distinct claim, with who made it and how often. Merge the ones that say the same thing under one master: a master and the claims merged into it count as one.</p>
+{% if Notice %}<p class="Alert Good">{{ Notice }}</p>{% endif %}
+{% if Error %}<p class="Alert Bad">{{ Error }}</p>{% endif %}
+
+<form class="Filters" method="get" action="/Claims">
+    <label>Search <input type="search" name="Search" value="{{ Filter.Search }}" placeholder="Claim wording or person's name"></label>
+    <label>Claimed by
+        <select name="Person" onchange="this.form.submit()">
+            <option value="0">Anyone</option>
+            {% for Row in Persons %}<option value="{{ Row.PersonID }}"{% if Filter.Person == Row.PersonID %} selected{% endif %}>{{ Row.PersonLabel }} ({{ Row.ClaimCount }})</option>{% endfor %}
+        </select>
+    </label>
+    <label>Type
+        <select name="Type" onchange="this.form.submit()">
+            <option value="0">All</option>
+            {% for ID, Label in TypeOptions %}{% if ID %}<option value="{{ ID }}"{% if Filter.Type == ID %} selected{% endif %}>{{ Label }}</option>{% endif %}{% endfor %}
+        </select>
+    </label>
+    <label>Valence
+        <select name="Valence" onchange="this.form.submit()">
+            <option value="0">All</option>
+            {% for ID, Label in ValenceOptions %}{% if ID %}<option value="{{ ID }}"{% if Filter.Valence == ID %} selected{% endif %}>{{ Label }}</option>{% endif %}{% endfor %}
+        </select>
+    </label>
+    <label>Status
+        <select name="Status" onchange="this.form.submit()">
+            <option value="0">All</option>
+            {% for ID, Label in StatusOptions %}{% if ID %}<option value="{{ ID }}"{% if Filter.Status == ID %} selected{% endif %}>{{ Label }}</option>{% endif %}{% endfor %}
+        </select>
+    </label>
+    <label>Subject
+        <select name="Category" onchange="this.form.submit()">
+            {% for ID, Label in CategoryOptions %}<option value="{{ ID }}"{% if Filter.Category == ID %} selected{% endif %}>{{ Label if ID else 'All subjects' }}</option>{% endfor %}
+        </select>
+    </label>
+    <label>Show
+        <select name="Show" onchange="this.form.submit()">
+            <option value="">Merged claims folded into their master</option>
+            <option value="All"{% if Filter.Show == 'All' %} selected{% endif %}>Every claim on its own row</option>
+        </select>
+    </label>
+    <label>Order
+        <select name="Sort" onchange="this.form.submit()">
+            {% for Value, Label in SortOptions %}<option value="{{ Value }}"{% if Filter.Sort == Value %} selected{% endif %}>{{ Label }}</option>{% endfor %}
+        </select>
+    </label>
+    <button type="submit">Apply</button>
+    {% if IsFiltered %}<a href="/Claims">Clear filters</a>{% endif %}
+</form>
+
+{% if Rows %}
+<form method="post" action="/Claims/Bulk" id="BulkForm">
+    <input type="hidden" name="Return" value="{{ QueryString }}">
+    <div class="Bulk">
+        <span class="BulkCount"><b id="PickedCount">0</b> ticked</span>
+        <label class="BulkOption" title="A master and the claims merged into it are treated as one claim"><input type="checkbox" name="IncludeChildren" checked> with their merged claims</label>
+        <span class="BulkGroup">
+            <select name="Master" id="MasterPick" aria-label="Master claim for the merge"><option value="">Master: tick two or more</option></select>
+            <button type="submit" name="Action" value="Merge" data-needs-pick="2">Merge</button>
+            <button type="submit" name="Action" value="Unmerge" data-needs-pick="1" title="Make the ticked claims independent again">Unmerge</button>
+        </span>
+        <span class="BulkGroup">
+            <select name="ClaimValence" aria-label="Valence to set">
+                <option value="">Valence: no change</option>
+                {% for ID, Label in ValenceOptions %}<option value="{{ ID }}">{{ Label if ID else 'Unspecified' }}</option>{% endfor %}
+            </select>
+            <select name="ClaimType" aria-label="Type to set">
+                <option value="">Type: no change</option>
+                {% for ID, Label in TypeOptions %}<option value="{{ ID }}">{{ Label if ID else 'Unspecified' }}</option>{% endfor %}
+            </select>
+            <select name="ClaimStatus" aria-label="Status to set">
+                <option value="">Status: no change</option>
+                {% for ID, Label in StatusOptions %}{% if ID %}<option value="{{ ID }}">{{ Label }}</option>{% endif %}{% endfor %}
+            </select>
+            <button type="submit" name="Action" value="Change" data-needs-pick="1">Change</button>
+        </span>
+        <span class="BulkGroup">
+            <button class="DangerButton" type="submit" name="Action" value="Delete" data-needs-pick="1" data-confirm="delete">Delete</button>
+        </span>
+    </div>
+    <div class="TableWrap">
+    <table>
+        <thead><tr>
+            <th class="Check"><input type="checkbox" id="PickAll" aria-label="Tick every claim on this page"></th>
+            <th>Claim</th><th>Claimed by</th><th class="Num">Assertions</th><th>Type</th><th>Valence</th><th>Subject</th><th>Status</th>
+        </tr></thead>
+        <tbody>
+        {% for Row in Rows %}
+        <tr>
+            <td class="Check"><input type="checkbox" name="Claims" value="{{ Row.ClaimID }}" data-label="{{ Row.ClaimLabel[:90] }}" data-assertions="{{ Row.AssertionCount }}" data-children="{{ Row.ChildCount }}" aria-label="Tick claim {{ Row.ClaimID }}"></td>
+            <td class="Wide"><a href="/Claims/View/{{ Row.ClaimID }}">{{ Row.ClaimLabel }}</a>
+                {% if Row.ClaimMaster %}<div class="Muted">merged into <a href="/Claims/View/{{ Row.ClaimMaster }}">{{ Row.MasterLabel }}</a></div>{% endif %}
+                {% if Row.ChildCount %}
+                <details class="Merged">
+                    <summary>Master of {{ Row.ChildCount }} merged claim{{ '' if Row.ChildCount == 1 else 's' }}</summary>
+                    <ul>
+                    {% for Child in Children.get(Row.ClaimID, []) %}
+                        <li><a href="/Claims/View/{{ Child.ClaimID }}">{{ Child.ClaimLabel }}</a>
+                            <span class="Muted">{{ Child.AssertionCount }} assertion{{ '' if Child.AssertionCount == 1 else 's' }}{% if Child.ClaimTypeLabel != Row.ClaimTypeLabel %} · {{ Child.ClaimTypeLabel }}{% endif %}{% if Child.ClaimValenceLabel != Row.ClaimValenceLabel %} · {{ Child.ClaimValenceLabel | lower }}{% endif %}{% if Child.StatusLabel != Row.StatusLabel %} · {{ Child.StatusLabel | lower }}{% endif %}</span></li>
+                    {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}</td>
+            <td>{{ Row.Claimants or '' }}{% if not Row.Claimants %}<span class="Muted">nobody yet</span>{% endif %}</td>
+            <td class="Num">{% if Row.AssertionCount %}<a href="/SourceClaims?Claim={{ Row.ClaimID }}">{{ Row.AssertionCount }}</a>
+                <div class="Muted">{{ Row.DateFirst.strftime('%Y-%m') }}{% if Row.DateLast.strftime('%Y-%m') != Row.DateFirst.strftime('%Y-%m') %} to {{ Row.DateLast.strftime('%Y-%m') }}{% endif %}</div>{% else %}0{% endif %}</td>
+            <td>{{ Row.ClaimTypeLabel if Row.ClaimType else '' }}</td>
+            <td>{{ Row.ClaimValenceLabel if Row.ClaimValence else '' }}</td>
+            <td>{{ Row.CategoryLabel if Row.ClaimCategory else '' }}</td>
+            <td><span class="Badge {{ 'Good' if Row.ClaimStatus == 402 else '' }}">{{ Row.StatusLabel or 'Not set' }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</form>
+<div class="Paging">
+    <span>{{ Total | Text('Number') }} claim{{ '' if Total == 1 else 's' }}{% if Filter.Show != 'All' and MergedTotal %} ({{ MergedTotal }} more folded into their masters){% endif %}</span>
+    {% if PageCount > 1 %}
+    {% if Page > 1 %}<a href="?{{ PagingQuery }}{{ '&' if PagingQuery }}Page={{ Page - 1 }}">Previous</a>{% endif %}
+    <span>Page {{ Page }} of {{ PageCount }}</span>
+    {% if Page < PageCount %}<a href="?{{ PagingQuery }}{{ '&' if PagingQuery }}Page={{ Page + 1 }}">Next</a>{% endif %}
+    {% endif %}
+</div>
+<script>
+(function () {
+    var Form = document.getElementById('BulkForm');
+    var Boxes = Array.prototype.slice.call(Form.querySelectorAll('input[name="Claims"]'));
+    var All = document.getElementById('PickAll');
+    var Count = document.getElementById('PickedCount');
+    var Master = document.getElementById('MasterPick');
+    var Include = Form.querySelector('input[name="IncludeChildren"]');
+    var Buttons = Array.prototype.slice.call(Form.querySelectorAll('[data-needs-pick]'));
+    function Picked() { return Boxes.filter(function (Box) { return Box.checked; }); }
+    function Refresh() {
+        var List = Picked();
+        Count.textContent = List.length;
+        Buttons.forEach(function (Button) { Button.disabled = List.length < Number(Button.dataset.needsPick); });
+        All.checked = List.length === Boxes.length && List.length > 0;
+        All.indeterminate = List.length > 0 && List.length < Boxes.length;
+        var Keep = Master.value;
+        Master.innerHTML = '';
+        var First = document.createElement('option');
+        First.value = '';
+        First.textContent = List.length < 2 ? 'Master: tick two or more' : 'Choose the master ...';
+        Master.appendChild(First);
+        List.forEach(function (Box) {
+            var Option = document.createElement('option');
+            Option.value = Box.value;
+            Option.textContent = Box.dataset.label;
+            if (Box.value === Keep) { Option.selected = true; }
+            Master.appendChild(Option);
+        });
+        Master.disabled = List.length < 2;
+    }
+    Boxes.forEach(function (Box) { Box.addEventListener('change', Refresh); });
+    All.addEventListener('change', function () { Boxes.forEach(function (Box) { Box.checked = All.checked; }); Refresh(); });
+    Form.addEventListener('submit', function (Event) {
+        var Button = Event.submitter;
+        if (!Button) { return; }
+        if (Button.value === 'Merge' && !Master.value) {
+            Event.preventDefault();
+            alert('Choose which of the ticked claims is the master.');
+            Master.focus();
+            return;
+        }
+        if (Button.dataset.confirm === 'delete') {
+            var List = Picked();
+            var Assertions = 0, Children = 0;
+            List.forEach(function (Box) { Assertions += Number(Box.dataset.assertions); Children += Number(Box.dataset.children); });
+            var Text = 'Delete ' + List.length + ' claim' + (List.length === 1 ? '' : 's');
+            if (Include.checked && Children) { Text += ' and the ' + Children + ' merged into them'; }
+            Text += ', together with ' + (Include.checked ? Assertions : 'their') + ' assertion' + (Assertions === 1 ? '' : 's') + ' and those assertions\' verdicts and evidence links?\n\nThis cannot be undone.';
+            if (!confirm(Text)) { Event.preventDefault(); }
+        }
+    });
+    Refresh();
+})();
+</script>
+{% else %}
+<p class="Empty">{% if IsFiltered %}No claims match these filters.{% else %}No claims recorded yet. They appear when claims are extracted from imported sources.{% endif %}</p>
+{% endif %}
+{% endblock %}

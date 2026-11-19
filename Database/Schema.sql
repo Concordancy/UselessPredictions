@@ -611,6 +611,8 @@ GO
    ===================================================================================== */
 
 -- Every assertion with its source, speaker, canonical claim and current verdict.
+-- ClaimGroupID / ClaimGroupLabel: the master claim when the claim was merged into one, else the claim itself;
+-- a master and the claims merged into it count as ONE distinct claim.
 CREATE OR ALTER VIEW dbo.SourceClaimList
 AS
 SELECT
@@ -623,6 +625,8 @@ SELECT
     ch.ChannelID, ch.ChannelLabel, pl.PlatformID, pl.PlatformLabel,
     p.PersonID, p.PersonLabel,
     c.ClaimID, c.ClaimLabel, ct.ClaimTypeLabel, cat.CategoryID, cat.CategoryLabel,
+    CASE WHEN c.ClaimMaster > 0 THEN c.ClaimMaster ELSE c.ClaimID END AS ClaimGroupID,
+    CASE WHEN c.ClaimMaster > 0 THEN ISNULL(cm.ClaimLabel, c.ClaimLabel) ELSE c.ClaimLabel END AS ClaimGroupLabel,
     v.ClaimValenceLabel, v.ClaimValenceValue,
     a.AssessmentID, a.AssessmentStatus, ast.StatusLabel AS AssessmentStatusLabel, a.AssessmentLabel, a.AssessmentConfidence,
     a.AssessmentScore, sco.ScoreLabel,
@@ -640,6 +644,7 @@ LEFT OUTER JOIN dbo.Channels ch          ON ch.ChannelID = s.SourceChannel
 LEFT OUTER JOIN dbo.Platforms pl         ON pl.PlatformID = ch.ChannelPlatform
 LEFT OUTER JOIN dbo.Persons p            ON p.PersonID = sc.SourceClaimPerson
 LEFT OUTER JOIN dbo.Claims c             ON c.ClaimID = sc.SourceClaimClaim
+LEFT OUTER JOIN dbo.Claims cm            ON cm.ClaimID = c.ClaimMaster AND c.ClaimMaster > 0
 LEFT OUTER JOIN dbo.ClaimTypes ct        ON ct.ClaimTypeID = c.ClaimType
 LEFT OUTER JOIN dbo.Categories cat       ON cat.CategoryID = c.ClaimCategory
 LEFT OUTER JOIN dbo.ClaimValences v      ON v.ClaimValenceID = c.ClaimValence
@@ -662,7 +667,7 @@ AS
 SELECT
     p.PersonID, p.PersonLabel,
     SUM(f.IsPrediction)                                                                 AS PersonClaimCount,
-    COUNT(DISTINCT CASE WHEN f.IsPrediction = 1 THEN NULLIF(l.ClaimID, 0) END)          AS PersonClaimCountDistinct,
+    COUNT(DISTINCT CASE WHEN f.IsPrediction = 1 THEN NULLIF(l.ClaimGroupID, 0) END)     AS PersonClaimCountDistinct,
     SUM(CASE WHEN f.IsPrediction = 1 AND f.IsCounted = 1 THEN 1 ELSE 0 END)             AS PersonClaimCountScored,
     SUM(CASE WHEN f.IsPrediction = 1 AND f.GroupID = 2 THEN 1 ELSE 0 END)               AS PersonClaimCountCorrect,
     SUM(CASE WHEN f.IsPrediction = 1 AND f.GroupID = 3 THEN 1 ELSE 0 END)               AS PersonClaimCountPartial,

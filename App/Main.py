@@ -17,7 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from markupsafe import Markup
 
-from . import Analysis, Assessment, Config, Database, Intake, Registry
+from . import Analysis, Assessment, Claim, Config, Database, Intake, Registry
 from .Connectors import ConnectorList, ConnectorGet, ConnectorDetect, ConnectorError
 
 AppPath = Path(__file__).resolve().parent
@@ -28,7 +28,9 @@ Templates = Jinja2Templates(directory=AppPath / 'Templates')
 PageSize = 50
 # Tables that have a purpose-built page besides the generic editor.
 ViewRouteMap = {'Persons': '/Persons/View/', 'Sources': '/Sources/View/', 'SourceClaims': '/SourceClaims/View/',
-                'Reports': '/Reports/View/', 'Jobs': '/Jobs/View/'}
+                'Claims': '/Claims/View/', 'Reports': '/Reports/View/', 'Jobs': '/Jobs/View/'}
+# Tables whose menu entry opens a purpose-built list instead of the generic one.
+ListRouteMap = {'Claims': '/Claims', 'SourceClaims': '/SourceClaims'}
 TableSortAscendingList = {'Lookups'}
 
 
@@ -111,7 +113,7 @@ Templates.env.filters['Rationale'] = RationaleHtmlGet
 
 def PageRender(Request_: Request, Template: str, **Context):
     Menu = [(Group, [Table for Table, _ in Tables]) for Group, Tables in Registry.TableGroupList]
-    return Templates.TemplateResponse(Request_, Template, {'Menu': Menu, 'ViewRouteMap': ViewRouteMap, **Context})
+    return Templates.TemplateResponse(Request_, Template, {'Menu': Menu, 'ViewRouteMap': ViewRouteMap, 'ListRouteMap': ListRouteMap, **Context})
 
 
 def ServiceStatusListGet() -> list:
@@ -178,6 +180,12 @@ def ManageListView(request: Request, Table: str, Search: str = '', Page: int = 1
             Where.append(f'x.[{Column.Name}] = ?')
             Values.append(int(Value))
             Filters[Name] = int(Value)
+    PersonSql = Registry.PersonSqlMap.get(Table)
+    PersonText = request.query_params.get('Person') or ''
+    Person = int(PersonText) if (PersonSql and re.fullmatch(r'\d+', PersonText)) else 0
+    if Person:
+        Where.append(PersonSql[1])
+        Values.append(Person)
     if Search.strip():
         Searchable = [C.Name for C in Info.Columns if C.Kind in ('Text', 'TextLong') and not C.IsComputed and C.TypeName not in ('ntext', 'text')]
         if Searchable:
@@ -188,6 +196,8 @@ def ManageListView(request: Request, Table: str, Search: str = '', Page: int = 1
     Page = max(1, Page)
     Direction = 'ASC' if (Info.Group in TableSortAscendingList or Table in ('Types', 'Statuses', 'Users')) else 'DESC'
     Select = ', '.join(f'x.[{Name}]' for Name in dict.fromkeys([Info.KeyColumn, Info.LabelColumn] + [C.Name for C in Columns]) if Name)
+    if PersonSql:
+        Select += f', {PersonSql[0]} AS PersonText'
     Rows = Database.RowListLoad(
         f'SELECT {Select} FROM dbo.[{Table}] x {WhereSql} ORDER BY x.[{Info.KeyColumn}] {Direction} '
         f'OFFSET ? ROWS FETCH NEXT ? ROWS ONLY', *Values, (Page - 1) * PageSize, PageSize)
@@ -203,8 +213,10 @@ def ManageListView(request: Request, Table: str, Search: str = '', Page: int = 1
         Column = Info.ColumnGet(Name)
         Label = Registry.ReferenceLabelMapLoad(Column, [Value]).get(Value, Value) if Column.Kind == 'Reference' else Value
         FilterNotes.append((ColumnTitleGet(Info, Name), Label))
-    Query = {**Filters, **({'Search': Search} if Search else {})}
+    Query = {**Filters, **({'Search': Search} if Search else {}), **({'Person': Person} if Person else {})}
+    PersonOptions = Database.RowListLoad('SELECT PersonID, PersonLabel FROM dbo.Persons WHERE PersonID > 0 ORDER BY PersonLabel') if PersonSql else []
     return PageRender(request, 'ManageList.html', Title=WordsGet(Table), Info=Info, Columns=Columns, Rows=Rows, Labels=Labels,
+                      PersonColumn=bool(PersonSql), PersonOptions=PersonOptions, Person=Person,
                       Titles={C.Name: ColumnTitleGet(Info, C.Name) for C in Columns}, Total=Total, Page=Page,
                       PageCount=max(1, -(-Total // PageSize)), Search=Search, Filters=Filters, FilterOptions=FilterOptions,
                       FilterNotes=FilterNotes, QueryString=urlencode(Query), CreateQuery=urlencode(Filters),
@@ -684,8 +696,8 @@ ClaimSortSql = {'': 'l.SourceDatePublished DESC, l.SourceClaimID DESC', 'Oldest'
 
 @App.get('/SourceClaims', response_class=HTMLResponse)
 def SourceClaimListView(request: Request, Person: int = 0, Search: str = '', Status: int = 0, Verdict: str = '', Window: str = '',
-                        Kind: int = 0, Category: int = 0, DateStart: str = '', DateEnd: str = '', Sort: str = '', Page: int = 1,
-                        Notice: str = '', Error: str = ''):
+                        Kind: int = 0, Category: int = 0, Claim: int = 0, DateStart: str = '', DateEnd: str = '', Sort: str = '',
+                        Page: int = 1, Notice: str = '', Error: str = ''):
     Verdict = Verdict if Verdict in ClaimVerdictSql else ''
     Window = Window if Window in ClaimWindowSql else ''
     Sort = Sort if Sort in ClaimSortSql else ''
@@ -693,9 +705,12 @@ def SourceClaimListView(request: Request, Person: int = 0, Search: str = '', Sta
     if Person:
         Where.append('l.PersonID = ?')
         Values.append(Person)
+    if Claim:
+        Where.append('(l.ClaimID = ? OR l.ClaimGroupID = ?)')
+        Values += [Claim, Claim]
     if Search.strip():
-        Where.append('(l.SourceClaimLabel LIKE ? OR l.SourceClaimQuote LIKE ? OR l.ClaimLabel LIKE ? OR l.SourceLabel LIKE ?)')
-        Values += [f'%{Search.strip()}%'] * 4
+        Where.append('(l.SourceClaimLabel LIKE ? OR l.SourceClaimQuote LIKE ? OR l.ClaimLabel LIKE ? OR l.SourceLabel LIKE ? OR l.PersonLabel LIKE ?)')
+        Values += [f'%{Search.strip()}%'] * 5
     if Verdict:
         Where.append(ClaimVerdictSql[Verdict])
     if Window:
@@ -724,11 +739,12 @@ def SourceClaimListView(request: Request, Person: int = 0, Search: str = '', Sta
     Rows = Database.RowListLoad(f'SELECT l.* {From} ORDER BY {ClaimSortSql[Sort]} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY',
                                 *Values, (Page - 1) * ClaimPageSize, ClaimPageSize)
     Filter = {'Person': Person, 'Search': Search.strip(), 'Status': Status, 'Verdict': Verdict, 'Window': Window, 'Kind': Kind,
-              'Category': Category, 'DateStart': DateStart, 'DateEnd': DateEnd, 'Sort': Sort}
+              'Category': Category, 'Claim': Claim, 'DateStart': DateStart, 'DateEnd': DateEnd, 'Sort': Sort}
     Active = {Name: Value for Name, Value in Filter.items() if Value}
     Info = Registry.TableGet('SourceClaims')
     return PageRender(
-        request, 'SourceClaimList.html', Title='Claims', Rows=Rows, Total=Total, Page=Page, PageCount=PageCount, Filter=Filter,
+        request, 'SourceClaimList.html', Title='Assertions', Rows=Rows, Total=Total, Page=Page, PageCount=PageCount, Filter=Filter,
+        ClaimLabel=(Database.ValueLoad('SELECT ClaimLabel FROM dbo.Claims WHERE ClaimID = ?', Claim) or '') if Claim else '',
         IsFiltered=bool({Name for Name in Active if Name != 'Sort'}), PagingQuery=urlencode(Active),
         QueryString=urlencode({**Active, **({'Page': Page} if Page > 1 else {})}), Notice=Notice, Error=Error, Today=date.today(),
         Persons=Database.RowListLoad(
@@ -781,3 +797,196 @@ async def SourceClaimBulk(request: Request):
         return Back()
 
     return RedirectResponse(await run_in_threadpool(Work), status_code=303)
+
+
+# ---------------------------------------------------------------------------------------------
+# Claims: the distinct claims, who made them, merging, bulk changes
+# ---------------------------------------------------------------------------------------------
+
+ClaimSortOptionList = [('', 'Most asserted first'), ('Newest', 'Most recently asserted first'), ('Label', 'Alphabetical')]
+ClaimSortSqlMap = {'': 'a.AssertionCount DESC, c.ClaimID DESC', 'Newest': "ISNULL(a.DateLast, '19000101') DESC, c.ClaimID DESC",
+                   'Label': 'c.ClaimLabel, c.ClaimID'}
+ClaimLabelJoinSql = ('LEFT OUTER JOIN dbo.ClaimTypes ct ON ct.ClaimTypeID = {A}.ClaimType LEFT OUTER JOIN dbo.Statuses st ON st.StatusID = {A}.ClaimStatus '
+                     'LEFT OUTER JOIN dbo.ClaimValences v ON v.ClaimValenceID = {A}.ClaimValence LEFT OUTER JOIN dbo.Categories cat ON cat.CategoryID = {A}.ClaimCategory ')
+
+
+def ClaimMatchSqlGet(Alias: str, Filter: dict) -> tuple[str, list]:
+    """Filter conditions for one claim row (alias) as (SQL, values)."""
+    Parts, Values = [], []
+    for Name, Column in (('Type', 'ClaimType'), ('Status', 'ClaimStatus'), ('Valence', 'ClaimValence')):
+        if Filter[Name]:
+            Parts.append(f'{Alias}.{Column} = ?')
+            Values.append(Filter[Name])
+    if Filter['Category']:
+        Parts.append(f'({Alias}.ClaimCategory = ? OR EXISTS (SELECT 1 FROM dbo.Categories cc WHERE cc.CategoryID = {Alias}.ClaimCategory AND cc.CategoryMaster = ?))')
+        Values += [Filter['Category']] * 2
+    if Filter['Person']:
+        Parts.append(f'EXISTS (SELECT 1 FROM dbo.SourceClaims sc WHERE sc.SourceClaimClaim = {Alias}.ClaimID AND sc.SourceClaimPerson = ? AND sc.SourceClaimStatus <> 503)')
+        Values.append(Filter['Person'])
+    if Filter['Search']:
+        Parts.append(f'({Alias}.ClaimLabel LIKE ? OR {Alias}.ClaimStatement LIKE ? OR EXISTS (SELECT 1 FROM dbo.SourceClaims sc '
+                     f'LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson WHERE sc.SourceClaimClaim = {Alias}.ClaimID '
+                     f'AND sc.SourceClaimStatus <> 503 AND (p.PersonLabel LIKE ? OR sc.SourceClaimLabel LIKE ?)))')
+        Values += [f"%{Filter['Search']}%"] * 4
+    return (' AND '.join(Parts) or '1 = 1'), Values
+
+
+def ClaimOptionSetGet() -> dict:
+    Info = Registry.TableGet('Claims')
+    return {'TypeOptions': Registry.ReferenceOptionListLoad(Info.ColumnGet('ClaimType')),
+            'ValenceOptions': Registry.ReferenceOptionListLoad(Info.ColumnGet('ClaimValence')),
+            'StatusOptions': Registry.ReferenceOptionListLoad(Info.ColumnGet('ClaimStatus')),
+            'CategoryOptions': Registry.ReferenceOptionListLoad(Info.ColumnGet('ClaimCategory'))}
+
+
+@App.get('/Claims', response_class=HTMLResponse)
+def ClaimListView(request: Request, Search: str = '', Person: int = 0, Type: int = 0, Status: int = 0, Valence: int = 0, Category: int = 0,
+                  Show: str = '', Sort: str = '', Page: int = 1, Notice: str = '', Error: str = ''):
+    Show = 'All' if Show == 'All' else ''
+    Sort = Sort if Sort in ClaimSortSqlMap else ''
+    Filter = {'Search': Search.strip(), 'Person': Person, 'Type': Type, 'Status': Status, 'Valence': Valence, 'Category': Category,
+              'Show': Show, 'Sort': Sort}
+    Match, Values = ClaimMatchSqlGet('c', Filter)
+    if Show == 'All':
+        Where, Family = f'c.ClaimID > 0 AND ({Match})', '(c.ClaimID)'
+    else:   # a master stands for itself and everything merged into it
+        ChildMatch, ChildValues = ClaimMatchSqlGet('k2', Filter)
+        Where = f'c.ClaimID > 0 AND c.ClaimMaster = 0 AND (({Match}) OR EXISTS (SELECT 1 FROM dbo.Claims k2 WHERE k2.ClaimMaster = c.ClaimID AND ({ChildMatch})))'
+        Values += ChildValues
+        Family = '(SELECT f.ClaimID FROM dbo.Claims f WHERE f.ClaimID = c.ClaimID OR f.ClaimMaster = c.ClaimID)'
+    Total = Database.ValueLoad(f'SELECT COUNT(*) FROM dbo.Claims c WHERE {Where}', *Values)
+    PageCount = max(1, -(-Total // ClaimPageSize))
+    Page = min(max(1, Page), PageCount)
+    Rows = Database.RowListLoad(
+        'SELECT c.ClaimID, c.ClaimLabel, c.ClaimStatement, c.ClaimType, c.ClaimStatus, c.ClaimValence, c.ClaimCategory, c.ClaimMaster, '
+        'ct.ClaimTypeLabel, st.StatusLabel, v.ClaimValenceLabel, cat.CategoryLabel, m.ClaimLabel AS MasterLabel, '
+        '(SELECT COUNT(*) FROM dbo.Claims k WHERE k.ClaimMaster = c.ClaimID) AS ChildCount, a.AssertionCount, a.DateFirst, a.DateLast, '
+        + Registry.PersonAggregateSqlGet('FROM dbo.SourceClaims sc LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson '
+                                         f'WHERE sc.SourceClaimClaim IN {Family} AND sc.SourceClaimStatus <> 503') + ' AS Claimants '
+        'FROM dbo.Claims c ' + ClaimLabelJoinSql.format(A='c') +
+        'LEFT OUTER JOIN dbo.Claims m ON m.ClaimID = c.ClaimMaster AND c.ClaimMaster > 0 '
+        'OUTER APPLY (SELECT COUNT(*) AS AssertionCount, MIN(s.SourceDatePublished) AS DateFirst, MAX(s.SourceDatePublished) AS DateLast '
+        '             FROM dbo.SourceClaims sc LEFT OUTER JOIN dbo.Sources s ON s.SourceID = sc.SourceClaimSource '
+        f'             WHERE sc.SourceClaimClaim IN {Family} AND sc.SourceClaimStatus <> 503 AND sc.SourceClaimID > 0) a '
+        f'WHERE {Where} ORDER BY {ClaimSortSqlMap[Sort]} OFFSET ? ROWS FETCH NEXT ? ROWS ONLY', *Values, (Page - 1) * ClaimPageSize, ClaimPageSize)
+    Children = {}
+    Masters = [Row['ClaimID'] for Row in Rows if Row['ChildCount']]
+    if Masters:
+        for Child in Database.RowListLoad(
+                'SELECT k.ClaimID, k.ClaimMaster, k.ClaimLabel, ct.ClaimTypeLabel, v.ClaimValenceLabel, st.StatusLabel, '
+                '(SELECT COUNT(*) FROM dbo.SourceClaims sc WHERE sc.SourceClaimClaim = k.ClaimID AND sc.SourceClaimStatus <> 503) AS AssertionCount '
+                'FROM dbo.Claims k ' + ClaimLabelJoinSql.format(A='k') +
+                f"WHERE k.ClaimMaster IN ({', '.join('?' for _ in Masters)}) ORDER BY k.ClaimID", *Masters):
+            Children.setdefault(Child['ClaimMaster'], []).append(Child)
+    Active = {Name: Value for Name, Value in Filter.items() if Value}
+    return PageRender(
+        request, 'ClaimList.html', Title='Claims', Rows=Rows, Children=Children, Total=Total, Page=Page, PageCount=PageCount, Filter=Filter,
+        IsFiltered=bool({Name for Name in Active if Name not in ('Sort', 'Show')}), PagingQuery=urlencode(Active),
+        QueryString=urlencode({**Active, **({'Page': Page} if Page > 1 else {})}), Notice=Notice, Error=Error,
+        MergedTotal=Database.ValueLoad('SELECT COUNT(*) FROM dbo.Claims WHERE ClaimMaster > 0'), SortOptions=ClaimSortOptionList,
+        Persons=Database.RowListLoad(
+            'SELECT p.PersonID, p.PersonLabel, COUNT(DISTINCT sc.SourceClaimClaim) AS ClaimCount FROM dbo.SourceClaims sc '
+            'LEFT OUTER JOIN dbo.Persons p ON p.PersonID = sc.SourceClaimPerson WHERE sc.SourceClaimID > 0 AND sc.SourceClaimStatus <> 503 '
+            'AND sc.SourceClaimClaim > 0 AND p.PersonID > 0 GROUP BY p.PersonID, p.PersonLabel ORDER BY ClaimCount DESC, p.PersonLabel'),
+        **ClaimOptionSetGet())
+
+
+@App.post('/Claims/Bulk')
+async def ClaimBulk(request: Request):
+    Form = await request.form()
+    Action, Return = Form.get('Action') or '', Form.get('Return') or ''
+    IDs = [int(Value) for Value in Form.getlist('Claims') if re.fullmatch(r'\d+', Value)]
+    Include = Form.get('IncludeChildren') is not None
+
+    def Back(**Message):
+        return f"/Claims?{Return}{'&' if Return else ''}{urlencode(Message)}"
+
+    def Plural(Count: int, Word: str = 'claim') -> str:
+        return f"{Count} {Word}{'' if Count == 1 else 's'}"
+
+    def Work():
+        if not IDs:
+            return Back(Error='Tick at least one claim first.')
+        if Action == 'Merge':
+            Master = int(Form.get('Master') or 0)
+            if Master not in IDs or len(IDs) < 2:
+                return Back(Error='Tick two or more claims and choose which of them is the master.')
+            Count = Claim.ClaimMergeRun(IDs, Master)
+            Label = Database.ValueLoad('SELECT ClaimLabel FROM dbo.Claims WHERE ClaimID = ?', Master)
+            return Back(Notice=f'{Plural(Count)} merged into "{Label}". Together they now count as one claim.')
+        if Action == 'Unmerge':
+            Count = Claim.ClaimUnmergeRun(IDs, Include)
+            return Back(Notice=f'{Plural(Count)} made independent again.' if Count else 'None of the ticked claims was merged.')
+        if Action == 'Change':
+            Values = {Name: Form.get(Name) for Name in ('ClaimType', 'ClaimValence', 'ClaimStatus') if (Form.get(Name) or '') != ''}
+            if not Values:
+                return Back(Error='Choose a valence, type or status to set first.')
+            Count = Claim.ClaimEditRun(Claim.ClaimFamilyListGet(IDs, Include), Values)
+            return Back(Notice=f"{Plural(Count)} changed ({', '.join(Name[5:].lower() for Name in Values)}).")
+        if Action == 'Delete':
+            Claims, Assertions = Claim.ClaimDeleteRun(Claim.ClaimFamilyListGet(IDs, Include))
+            return Back(Notice=f"{Plural(Claims)} deleted, with {Plural(Assertions, 'assertion')}.")
+        return Back()
+
+    return RedirectResponse(await run_in_threadpool(Work), status_code=303)
+
+
+@App.get('/Claims/View/{ID}', response_class=HTMLResponse)
+def ClaimView(request: Request, ID: int, Notice: str = '', Error: str = ''):
+    Row = Database.RowLoad(
+        'SELECT c.*, ct.ClaimTypeLabel, st.StatusLabel, v.ClaimValenceLabel, cat.CategoryLabel, m.ClaimLabel AS MasterLabel '
+        'FROM dbo.Claims c ' + ClaimLabelJoinSql.format(A='c') +
+        'LEFT OUTER JOIN dbo.Claims m ON m.ClaimID = c.ClaimMaster AND c.ClaimMaster > 0 WHERE c.ClaimID = ? AND c.ClaimID > 0', ID)
+    if Row is None:
+        return PageRender(request, 'Message.html', Title='Not found', Message='That claim does not exist (any more).')
+    Children = Database.RowListLoad(
+        'SELECT k.ClaimID, k.ClaimLabel, k.ClaimType, k.ClaimValence, k.ClaimStatus, ct.ClaimTypeLabel, v.ClaimValenceLabel, st.StatusLabel, '
+        '(SELECT COUNT(*) FROM dbo.SourceClaims sc WHERE sc.SourceClaimClaim = k.ClaimID AND sc.SourceClaimStatus <> 503) AS AssertionCount '
+        'FROM dbo.Claims k ' + ClaimLabelJoinSql.format(A='k') + 'WHERE k.ClaimMaster = ? ORDER BY k.ClaimID', ID)
+    Family = 'l.SourceClaimStatus <> 503 AND (l.ClaimID = ? OR l.ClaimGroupID = ?)' if Children else 'l.SourceClaimStatus <> 503 AND l.ClaimID = ?'
+    Keys = [ID, ID] if Children else [ID]
+    return PageRender(
+        request, 'ClaimView.html', Title=Row['ClaimLabel'], Claim=Row, Children=Children, Notice=Notice, Error=Error,
+        Claimants=Database.RowListLoad(f'SELECT l.PersonID, l.PersonLabel, COUNT(*) AS AssertionCount FROM dbo.SourceClaimList l WHERE {Family} '
+                                       'AND l.PersonID > 0 GROUP BY l.PersonID, l.PersonLabel ORDER BY AssertionCount DESC', *Keys),
+        AssertionCount=Database.ValueLoad(f'SELECT COUNT(*) FROM dbo.SourceClaimList l WHERE {Family}', *Keys),
+        Assertions=Database.RowListLoad(f'SELECT TOP 200 l.* FROM dbo.SourceClaimList l WHERE {Family} ORDER BY l.SourceDatePublished, l.SourceClaimID', *Keys),
+        **ClaimOptionSetGet())
+
+
+@App.post('/Claims/Save/{ID}')
+async def ClaimSave(request: Request, ID: int):
+    Form = await request.form()
+    Label = (Form.get('ClaimLabel') or '').strip()
+    if not Label:
+        return RedirectResponse(f'/Claims/View/{ID}?{urlencode({"Error": "The claim needs a wording."})}', status_code=303)
+    Values = {'ClaimLabel': Label[:320], 'ClaimStatement': (Form.get('ClaimStatement') or '').strip()[:2000],
+              'ClaimCriteria': (Form.get('ClaimCriteria') or '').strip()[:4000], 'ClaimDateEdited': datetime.utcnow()}
+    for Name in ('ClaimType', 'ClaimValence', 'ClaimStatus', 'ClaimCategory'):
+        if re.fullmatch(r'\d+', Form.get(Name) or ''):
+            Values[Name] = int(Form.get(Name))
+    await run_in_threadpool(Database.RowEdit, 'Claims', 'ClaimID', ID, Values)
+    return RedirectResponse(f'/Claims/View/{ID}?{urlencode({"Notice": "Saved."})}', status_code=303)
+
+
+@App.post('/Claims/ChildrenEdit/{ID}')
+async def ClaimChildrenEdit(request: Request, ID: int):
+    Form = await request.form()
+    Values = {Name: Form.get(Name) for Name in ('ClaimType', 'ClaimValence', 'ClaimStatus') if (Form.get(Name) or '') != ''}
+
+    def Work():
+        Children = [Row['ClaimID'] for Row in Database.RowListLoad('SELECT ClaimID FROM dbo.Claims WHERE ClaimMaster = ?', ID)]
+        if not Values:
+            return {'Error': 'Everything was set to "Leave as they are", so nothing changed.'}
+        Count = Claim.ClaimEditRun(Children, Values)
+        return {'Notice': f"{', '.join(Name[5:] for Name in Values)} set on {Count} merged claim{'' if Count == 1 else 's'}."}
+
+    return RedirectResponse(f'/Claims/View/{ID}?{urlencode(await run_in_threadpool(Work))}', status_code=303)
+
+
+@App.post('/Claims/Unmerge/{ID}')
+async def ClaimUnmerge(request: Request, ID: int):
+    Form = await request.form()
+    await run_in_threadpool(Claim.ClaimUnmergeRun, [ID], False)
+    Target = int(Form.get('Return')) if re.fullmatch(r'\d+', Form.get('Return') or '') else ID
+    return RedirectResponse(f'/Claims/View/{Target}?{urlencode({"Notice": "Unmerged: it is an independent claim again."})}', status_code=303)

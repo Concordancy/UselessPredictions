@@ -110,6 +110,12 @@ textarea { width: 100%; resize: vertical; line-height: 1.45; }
 .BulkCount b { color: var(--Ink); font-variant-numeric: tabular-nums; }
 .BulkGroup { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; padding-left: .9rem; border-left: 1px solid var(--Line); }
 .BulkGroup select { max-width: 230px; }
+.BulkOption { display: inline-flex; align-items: center; gap: .35rem; color: var(--InkSoft); font-size: .9rem; }
+.DangerButton { color: var(--Bad); border-color: var(--Bad); background: transparent; }
+.Merged { margin-top: .3rem; font-size: .9rem; }
+.Merged summary { cursor: pointer; color: var(--InkSoft); }
+.Merged ul { margin: .3rem 0 0; padding-left: 1.2rem; }
+td.Differs { color: var(--Warn); font-weight: 600; }
 th.Check, td.Check { width: 2.2rem; text-align: center; }
 td.Check input, th.Check input { width: 1.05rem; height: 1.05rem; }
 td.NoWrap { white-space: nowrap; }
